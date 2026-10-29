@@ -1,0 +1,665 @@
+{
+ "combos": [
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 136
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5"
+   ],
+   "sessions": 121
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4"
+   ],
+   "sessions": 96
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M5"
+   ],
+   "sessions": 94
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4"
+   ],
+   "sessions": 79
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M6"
+   ],
+   "sessions": 60
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 55
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M6"
+   ],
+   "sessions": 45
+  },
+  {
+   "mechanisms": [
+    "M4"
+   ],
+   "sessions": 43
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3"
+   ],
+   "sessions": 39
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 38
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7"
+   ],
+   "sessions": 33
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M6"
+   ],
+   "sessions": 31
+  },
+  {
+   "mechanisms": [
+    "M2"
+   ],
+   "sessions": 29
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M6"
+   ],
+   "sessions": 27
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+   ],
+   "sessions": 26
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4",
+    "M7"
+   ],
+   "sessions": 26
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5"
+   ],
+   "sessions": 24
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M5"
+   ],
+   "sessions": 23
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M5",
+    "M6"
+   ],
+   "sessions": 21
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M7"
+   ],
+   "sessions": 21
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4",
+    "M5"
+   ],
+   "sessions": 20
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M5"
+   ],
+   "sessions": 20
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M6"
+   ],
+   "sessions": 19
+  },
+  {
+   "mechanisms": [
+    "M6"
+   ],
+   "sessions": 19
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7"
+   ],
+   "sessions": 18
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M5"
+   ],
+   "sessions": 17
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M4"
+   ],
+   "sessions": 17
+  },
+  {
+   "mechanisms": [
+    "M7"
+   ],
+   "sessions": 17
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M3"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M7"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M7"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M5"
+   ],
+   "sessions": 13
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 12
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3"
+   ],
+   "sessions": 11
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M7"
+   ],
+   "sessions": 11
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4",
+    "M5",
+    "M7"
+   ],
+   "sessions": 11
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M6",
+    "M7"
+   ],
+   "sessions": 10
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M6",
+    "M7"
+   ],
+   "sessions": 10
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 9
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M4",
+    "M5"
+   ],
+   "sessions": 9
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M5",
+    "M7"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M5"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M1"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M5",
+    "M6"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M5"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M6"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M7"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M4",
+    "M6"
+   ],
+   "sessions": 8
+  }
+ ],
+ "pairs": [
+  {
+   "a": "P.M2.1",
+   "b": "Q.M3.1",
+   "sessions": 374
+  },
+  {
+   "a": "P.M2.1",
+   "b": "S.M4.3",
+   "sessions": 351
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M3.2",
+   "sessions": 312
+  },
+  {
+   "a": "P.M2.1",
+   "b": "S.M4.2",
+   "sessions": 285
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M4.1",
+   "sessions": 216
+  },
+  {
+   "a": "P.M2.1",
+   "b": "S.M4.1",
+   "sessions": 213
+  },
+  {
+   "a": "A.M5.2",
+   "b": "P.M2.1",
+   "sessions": 208
+  },
+  {
+   "a": "S.M4.2",
+   "b": "S.M4.3",
+   "sessions": 194
+  },
+  {
+   "a": "Q.M3.1",
+   "b": "S.M4.3",
+   "sessions": 193
+  },
+  {
+   "a": "A.M5.1",
+   "b": "P.M2.1",
+   "sessions": 188
+  },
+  {
+   "a": "Q.M3.1",
+   "b": "Q.M3.2",
+   "sessions": 170
+  },
+  {
+   "a": "Q.M3.2",
+   "b": "S.M4.3",
+   "sessions": 168
+  },
+  {
+   "a": "Q.M3.1",
+   "b": "S.M4.2",
+   "sessions": 167
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M3.3",
+   "sessions": 165
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M2.1",
+   "sessions": 163
+  },
+  {
+   "a": "A.M5.4",
+   "b": "P.M2.1",
+   "sessions": 158
+  },
+  {
+   "a": "P.M2.1",
+   "b": "S.M4.5",
+   "sessions": 158
+  },
+  {
+   "a": "A.M6.5",
+   "b": "P.M2.1",
+   "sessions": 155
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M3.4",
+   "sessions": 148
+  },
+  {
+   "a": "S.M4.1",
+   "b": "S.M4.3",
+   "sessions": 144
+  },
+  {
+   "a": "P.M2.1",
+   "b": "P.M2.2",
+   "sessions": 140
+  },
+  {
+   "a": "Q.M3.1",
+   "b": "S.M4.1",
+   "sessions": 140
+  },
+  {
+   "a": "A.M5.2",
+   "b": "S.M4.3",
+   "sessions": 139
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M2.2",
+   "sessions": 138
+  },
+  {
+   "a": "Q.M3.2",
+   "b": "S.M4.2",
+   "sessions": 136
+  },
+  {
+   "a": "A.M5.2",
+   "b": "Q.M3.1",
+   "sessions": 134
+  },
+  {
+   "a": "A.M5.1",
+   "b": "Q.M3.1",
+   "sessions": 131
+  },
+  {
+   "a": "A.M5.1",
+   "b": "S.M4.2",
+   "sessions": 131
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M4.2",
+   "sessions": 126
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M2.7",
+   "sessions": 126
+  },
+  {
+   "a": "A.M5.2",
+   "b": "S.M4.2",
+   "sessions": 124
+  },
+  {
+   "a": "A.M5.2",
+   "b": "Q.M3.2",
+   "sessions": 116
+  },
+  {
+   "a": "A.M6.4",
+   "b": "P.M2.1",
+   "sessions": 115
+  },
+  {
+   "a": "Q.M3.1",
+   "b": "Q.M4.1",
+   "sessions": 114
+  },
+  {
+   "a": "Q.M4.1",
+   "b": "S.M4.3",
+   "sessions": 112
+  },
+  {
+   "a": "Q.M3.2",
+   "b": "S.M4.1",
+   "sessions": 111
+  },
+  {
+   "a": "P.M2.1",
+   "b": "P.M2.4",
+   "sessions": 111
+  },
+  {
+   "a": "A.M5.1",
+   "b": "S.M4.3",
+   "sessions": 111
+  },
+  {
+   "a": "P.M2.1",
+   "b": "Q.M4.3",
+   "sessions": 109
+  },
+  {
+   "a": "S.M4.1",
+   "b": "S.M4.2",
+   "sessions": 108
+  },
+  {
+   "a": "A.M5.3",
+   "b": "P.M2.1",
+   "sessions": 108
+  },
+  {
+   "a": "A.M6.5",
+   "b": "S.M4.3",
+   "sessions": 107
+  },
+  {
+   "a": "P.M2.1",
+   "b": "P.M2.6",
+   "sessions": 107
+  },
+  {
+   "a": "A.M5.4",
+   "b": "S.M4.3",
+   "sessions": 107
+  },
+  {
+   "a": "P.M2.1",
+   "b": "P.M2.7",
+   "sessions": 105
+  },
+  {
+   "a": "Q.M3.3",
+   "b": "S.M4.3",
+   "sessions": 105
+  },
+  {
+   "a": "S.M4.3",
+   "b": "S.M4.5",
+   "sessions": 105
+  },
+  {
+   "a": "Q.M4.1",
+   "b": "S.M4.2",
+   "sessions": 105
+  },
+  {
+   "a": "Q.M2.1",
+   "b": "Q.M3.1",
+   "sessions": 102
+  },
+  {
+   "a": "Q.M3.4",
+   "b": "S.M4.3",
+   "sessions": 100
+  }
+ ]
+}

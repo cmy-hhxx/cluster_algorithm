@@ -1,0 +1,74 @@
+{
+ "planner-finquery 取数规划子模型": {
+  "tool": "planner-finquery",
+  "label": "取数规划子模型"
+ },
+ "planner-search 检索规划子模型": {
+  "tool": "planner-search",
+  "label": "检索规划子模型"
+ },
+ "stock_ner_parse 实体识别": {
+  "tool": "stock_ner_parse",
+  "label": "实体识别"
+ },
+ "finquery 取数服务": {
+  "tool": "finquery",
+  "label": "取数服务"
+ },
+ "shell 代码解释器": {
+  "tool": "shell",
+  "label": "代码解释器"
+ },
+ "web_search 网页检索": {
+  "tool": "web_search",
+  "label": "网页检索"
+ },
+ "web_fetch 网页抓取": {
+  "tool": "web_fetch",
+  "label": "网页抓取"
+ },
+ "其他工具（customer_services）": {
+  "tool": "customer_services",
+  "label": "客服知识库"
+ },
+ "其他工具（aime_memory_read）": {
+  "tool": "aime_memory_read",
+  "label": "记忆读取"
+ },
+ "其他工具（aime_memory_write）": {
+  "tool": "aime_memory_write",
+  "label": "记忆写入"
+ },
+ "其他工具（get_user_context）": {
+  "tool": "get_user_context",
+  "label": "用户上下文"
+ },
+ "其他工具（understand-image-0）": {
+  "tool": "understand_image",
+  "label": "图像理解"
+ },
+ "其他工具（understand_image）": {
+  "tool": "understand_image",
+  "label": "图像理解"
+ },
+ "其他工具（query_user_positions）": {
+  "tool": "query_user_positions",
+  "label": "持仓查询"
+ },
+ "其他工具（display）": {
+  "tool": "display",
+  "label": "展示组件"
+ },
+ "view_skill / read_file 技能加载": {
+  "tool": "view_skill/read_file",
+  "label": "技能加载"
+ },
+ "终稿生成轮": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成"
+ },
+ "中间推理处理": {
+  "tool": "中间推理处理",
+  "label": "中间推理"
+ }
+}

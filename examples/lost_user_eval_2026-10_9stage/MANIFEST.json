@@ -1,0 +1,83 @@
+{
+ "bundle": "归因问题聚类树",
+ "pipeline_version": {
+  "version": "2.3.0",
+  "taxonomy": "three-axis-v2.3 (9 环节 / 7 机制 / 133 模式)",
+  "created": "2026-10-28",
+  "updated": "2026-10-29",
+  "changes": [
+   "1.1.0 增加会话主口径、横切标签、syndrome、comp2l1 显式映射",
+   "1.2.0 提示词升级为可判定规格：决策顺序、边界裁决表、真实样例、可执行自检、反模式清单",
+   "1.3.0 INV_<L1>.md 升级为判定卡：可观测信号 / 最近邻区分点 / 真实正例与反例 / 互斥对照表",
+   "2.0.0 环节由 5 拆为 7（S1 取数规划 / S2 检索规划 / S3 结构化取数 / S4 本地计算 / S5 网页检索 / S6 工具与上下文 / S7 终稿生成）；跨段叶子按组件一分为二，不重标",
+   "2.1.0 component 统一为工具标识（去掉「其他工具（）」外壳、合并 understand-image-0/understand_image），人读标签另存 components.json",
+   "2.2.0 S6 拆为「客服知识库」与「记忆与能力加载」；35 组跨段同名叶子全部改为段内专属命名，同名冲突清零",
+   "2.3.0 取消未知工具兜底（未登记即中断）；S7 拆为「记忆」「能力装载」；27 个联合命名叶子全部拆开或改名，全树无「与/或」节点"
+  ]
+ },
+ "generated_at": "2026-10-29T15:07:25+08:00",
+ "dataset": {
+  "total_items": 13002,
+  "total_traces": 3157,
+  "total_sessions": 1627,
+  "total_cases": 3157
+ },
+ "tree": {
+  "depth": 3,
+  "level1": 9,
+  "level2": 42,
+  "level3": 133,
+  "level4": 0
+ },
+ "quality": {
+  "edge_flagged": 2295,
+  "edge_rate": 0.1765
+ },
+ "files": [
+  {
+   "name": "cluster_tree.json",
+   "bytes": 641598,
+   "sha256_16": "2490058648e32121"
+  },
+  {
+   "name": "cluster_tree.txt",
+   "bytes": 12960,
+   "sha256_16": "642faa4b17c984ad"
+  },
+  {
+   "name": "cluster_summary.md",
+   "bytes": 10370,
+   "sha256_16": "0abc15212d4ff187"
+  },
+  {
+   "name": "cluster_matrix.png",
+   "bytes": 108517,
+   "sha256_16": "038325ef595e7a69"
+  },
+  {
+   "name": "item_index.jsonl",
+   "bytes": 15291096,
+   "sha256_16": "60a6401f09eccc5c"
+  },
+  {
+   "name": "syndrome.md",
+   "bytes": 2468,
+   "sha256_16": "009fb56487888b6c"
+  },
+  {
+   "name": "syndrome.json",
+   "bytes": 7460,
+   "sha256_16": "c1b9c3c07d719c71"
+  },
+  {
+   "name": "leaves.tsv",
+   "bytes": 10730,
+   "sha256_16": "e8bb98a254c2f0f7"
+  }
+ ],
+ "notes": [
+  "主口径为会话数，条目数作附列。",
+  "每个叶子内嵌 samples，含 case_id/session_id/trace_id/src_file/src_line/json_path。",
+  "item_index.jsonl 为全量索引，可用 bin/cluster.py recall 召回。"
+ ]
+}

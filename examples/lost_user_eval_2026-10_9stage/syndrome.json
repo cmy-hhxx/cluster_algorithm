@@ -1,0 +1,665 @@
+{
+ "combos": [
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 136
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5"
+   ],
+   "sessions": 121
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4"
+   ],
+   "sessions": 96
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M5"
+   ],
+   "sessions": 94
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4"
+   ],
+   "sessions": 79
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M6"
+   ],
+   "sessions": 60
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 55
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M6"
+   ],
+   "sessions": 45
+  },
+  {
+   "mechanisms": [
+    "M4"
+   ],
+   "sessions": 43
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3"
+   ],
+   "sessions": 39
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 38
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7"
+   ],
+   "sessions": 33
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M6"
+   ],
+   "sessions": 31
+  },
+  {
+   "mechanisms": [
+    "M2"
+   ],
+   "sessions": 29
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M6"
+   ],
+   "sessions": 27
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+   ],
+   "sessions": 26
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4",
+    "M7"
+   ],
+   "sessions": 26
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5"
+   ],
+   "sessions": 24
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M5"
+   ],
+   "sessions": 23
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M5",
+    "M6"
+   ],
+   "sessions": 21
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M7"
+   ],
+   "sessions": 21
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4",
+    "M5"
+   ],
+   "sessions": 20
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M5"
+   ],
+   "sessions": 20
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M6"
+   ],
+   "sessions": 19
+  },
+  {
+   "mechanisms": [
+    "M6"
+   ],
+   "sessions": 19
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7"
+   ],
+   "sessions": 18
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M5"
+   ],
+   "sessions": 17
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M4"
+   ],
+   "sessions": 17
+  },
+  {
+   "mechanisms": [
+    "M7"
+   ],
+   "sessions": 17
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M3"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M7"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M7"
+   ],
+   "sessions": 14
+  },
+  {
+   "mechanisms": [
+    "M5"
+   ],
+   "sessions": 13
+  },
+  {
+   "mechanisms": [
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 12
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3"
+   ],
+   "sessions": 11
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M7"
+   ],
+   "sessions": 11
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M4",
+    "M5",
+    "M7"
+   ],
+   "sessions": 11
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M6",
+    "M7"
+   ],
+   "sessions": 10
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M3",
+    "M4",
+    "M6",
+    "M7"
+   ],
+   "sessions": 10
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M4",
+    "M5",
+    "M6"
+   ],
+   "sessions": 9
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M4",
+    "M5"
+   ],
+   "sessions": 9
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M4",
+    "M5",
+    "M7"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M2",
+    "M3",
+    "M5"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M1"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M5",
+    "M6"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M5"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M2",
+    "M6"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M3",
+    "M7"
+   ],
+   "sessions": 8
+  },
+  {
+   "mechanisms": [
+    "M1",
+    "M4",
+    "M6"
+   ],
+   "sessions": 8
+  }
+ ],
+ "pairs": [
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M3.1",
+   "sessions": 374
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S5.M4.3",
+   "sessions": 350
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M3.2",
+   "sessions": 312
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S5.M4.2",
+   "sessions": 285
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M4.1",
+   "sessions": 216
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S5.M4.1",
+   "sessions": 212
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S9.M5.2",
+   "sessions": 208
+  },
+  {
+   "a": "S5.M4.2",
+   "b": "S5.M4.3",
+   "sessions": 194
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S5.M4.3",
+   "sessions": 192
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S9.M5.1",
+   "sessions": 188
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S3.M3.2",
+   "sessions": 170
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S5.M4.2",
+   "sessions": 167
+  },
+  {
+   "a": "S3.M3.2",
+   "b": "S5.M4.3",
+   "sessions": 166
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M3.3",
+   "sessions": 165
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M2.1",
+   "sessions": 163
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S9.M5.4",
+   "sessions": 157
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S5.M4.5",
+   "sessions": 157
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M3.4",
+   "sessions": 148
+  },
+  {
+   "a": "S5.M4.1",
+   "b": "S5.M4.3",
+   "sessions": 144
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S5.M4.1",
+   "sessions": 140
+  },
+  {
+   "a": "S5.M4.3",
+   "b": "S9.M5.2",
+   "sessions": 139
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M2.2",
+   "sessions": 138
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S9.M5.2",
+   "sessions": 133
+  },
+  {
+   "a": "S3.M3.2",
+   "b": "S5.M4.2",
+   "sessions": 132
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S9.M5.1",
+   "sessions": 131
+  },
+  {
+   "a": "S5.M4.2",
+   "b": "S9.M5.1",
+   "sessions": 131
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M4.2",
+   "sessions": 126
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M2.7",
+   "sessions": 126
+  },
+  {
+   "a": "S5.M4.2",
+   "b": "S9.M5.2",
+   "sessions": 124
+  },
+  {
+   "a": "S3.M3.2",
+   "b": "S9.M5.2",
+   "sessions": 115
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S9.M6.4",
+   "sessions": 115
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S3.M4.1",
+   "sessions": 114
+  },
+  {
+   "a": "S3.M3.2",
+   "b": "S5.M4.1",
+   "sessions": 111
+  },
+  {
+   "a": "S5.M4.3",
+   "b": "S9.M5.1",
+   "sessions": 111
+  },
+  {
+   "a": "S3.M4.1",
+   "b": "S5.M4.3",
+   "sessions": 111
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S3.M4.3",
+   "sessions": 109
+  },
+  {
+   "a": "S5.M4.1",
+   "b": "S5.M4.2",
+   "sessions": 108
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S9.M5.3",
+   "sessions": 108
+  },
+  {
+   "a": "S5.M4.3",
+   "b": "S9.M5.4",
+   "sessions": 107
+  },
+  {
+   "a": "S5.M4.3",
+   "b": "S5.M4.5",
+   "sessions": 105
+  },
+  {
+   "a": "S3.M4.1",
+   "b": "S5.M4.2",
+   "sessions": 103
+  },
+  {
+   "a": "S3.M2.1",
+   "b": "S3.M3.1",
+   "sessions": 102
+  },
+  {
+   "a": "S3.M3.3",
+   "b": "S5.M4.3",
+   "sessions": 102
+  },
+  {
+   "a": "S3.M3.4",
+   "b": "S5.M4.3",
+   "sessions": 100
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S1.M2.2",
+   "sessions": 100
+  },
+  {
+   "a": "S1.M2.1",
+   "b": "S9.M6.7",
+   "sessions": 97
+  },
+  {
+   "a": "S3.M3.2",
+   "b": "S3.M4.1",
+   "sessions": 97
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S9.M5.4",
+   "sessions": 95
+  },
+  {
+   "a": "S3.M3.1",
+   "b": "S5.M4.5",
+   "sessions": 95
+  },
+  {
+   "a": "S3.M2.1",
+   "b": "S5.M4.3",
+   "sessions": 95
+  }
+ ]
+}

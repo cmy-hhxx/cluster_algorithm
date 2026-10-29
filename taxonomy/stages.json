@@ -1,0 +1,73 @@
+{
+ "S1": {
+  "name": "取数规划",
+  "definition": "把问题翻译成结构化取数请求的阶段。含 planner-finquery。失效多为查询项构造错、实体/时点/指标设计错。",
+  "components": [
+   "planner-finquery"
+  ]
+ },
+ "S2": {
+  "name": "检索规划",
+  "definition": "把问题翻译成网页检索请求的阶段。含 planner-search、实体识别。失效多为检索词构造、时效锚点、歧义实体未消解。",
+  "components": [
+   "planner-search",
+   "stock_ner_parse"
+  ]
+ },
+ "S3": {
+  "name": "结构化取数",
+  "definition": "执行结构化取数与 SQL。含 finquery 取数服务。失效多为解析/执行报错、零行、字段丢失、口径错。",
+  "components": [
+   "finquery"
+  ]
+ },
+ "S4": {
+  "name": "本地计算",
+  "definition": "在本地做取数编排、计算与图表。含 shell 代码解释器、持仓查询。失效多为脚本报错、数据占位、产物空白。",
+  "components": [
+   "shell",
+   "query_user_positions"
+  ]
+ },
+ "S5": {
+  "name": "网页检索",
+  "definition": "执行外部网页检索与抓取。含 web_search、web_fetch。失效多为召回不相关、时效过期、正文不可用。",
+  "components": [
+   "web_search",
+   "web_fetch"
+  ]
+ },
+ "S6": {
+  "name": "客服知识库",
+  "definition": "客服/帮助中心知识库的检索与答复。含 customer_services。失效多为超时、正文损坏、答非所问、编造入口。",
+  "components": [
+   "customer_services"
+  ]
+ },
+ "S7": {
+  "name": "记忆",
+  "definition": "用户上下文与记忆的读写。含 aime_memory_read、aime_memory_write、get_user_context。失效多为读错旧记忆、写入无回执。",
+  "components": [
+   "aime_memory_read",
+   "aime_memory_write",
+   "get_user_context"
+  ]
+ },
+ "S8": {
+  "name": "能力装载",
+  "definition": "把外部能力装入上下文：技能文件加载、图像理解。含 view_skill/read_file、understand_image。失效多为加载失败、参数没带上、图像数值算错。",
+  "components": [
+   "view_skill/read_file",
+   "understand_image"
+  ]
+ },
+ "S9": {
+  "name": "终稿生成",
+  "definition": "把已有材料组织成最终答复与中间产物。含终稿生成轮、中间推理处理、display。失效多为编造、口径错、答非所问。",
+  "components": [
+   "终稿生成轮",
+   "中间推理处理",
+   "display"
+  ]
+ }
+}

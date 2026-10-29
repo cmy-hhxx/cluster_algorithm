@@ -1,0 +1,82 @@
+# RUNBOOK：收到「帮我聚类」指令后我做什么
+
+用户只需给：**attribution.jsonl（或每天一个 jsonl 的目录）**。下面是我在 DSH 里执行的固定流程。
+
+## 0. 参数
+
+| 变量 | 取值 |
+|---|---|
+| `SRC` | 用户给的 jsonl / 目录 |
+| `CASES` | 可选，`eval_session_inputs` 目录，用于补 `case_id` 与问题原文 |
+| `RUN` | 运行目录，如 `<输出目录>/run` |
+| `OUT` | 交付目录，如 `<输出目录>` |
+| 并发 | **最多 8 个子代理**（运行时硬上限，超过会直接失败） |
+| 分片 | 200 条/片，按 L1 分组，跨 L1 不混片 |
+
+## 1. 解析与分片（确定性，秒级）
+
+```bash
+python3 bin/cluster.py ingest --input $SRC --cases $CASES --out $RUN
+python3 bin/cluster.py chunk  --work $RUN --size 200
+```
+
+看两个数：`bad_lines`（应为 0，非 0 说明源数据有坏行，先报告用户）、`components`（出现未映射的 component 要停下来确认，不要硬塞进现有 L1）。
+
+## 2. 归类（需要子代理）
+
+对 `assign/manifest.json` 里的每个分片派一个子代理，提示词用
+`prompts/01_assign.md`，参数：`{{ROOT}}`（本仓库绝对路径）、`{{L1}}`、`{{CHUNK}}`、`{{N}}`。
+
+- 每片自检三条：行数、seq 集合、path 合法。
+- 按 8 并发分批，失败的片重试一次。
+- 产出 `$RUN/assign/<chunk>.out.jsonl`。
+
+## 3. 聚合与校验（确定性，秒级）
+
+```bash
+python3 bin/cluster.py aggregate --work $RUN --out $OUT --sessions-all <全量会话数>
+python3 bin/cluster.py verify    --work $RUN --out $OUT --src <源目录绝对路径>
+```
+
+`verify` 必须 `errors=0` 且 `locator_mismatch=0` 才能交付。
+
+## 4. 报告
+
+```bash
+python3 bin/cluster.py report   --out $OUT
+python3 bin/cluster.py chart    --out $OUT
+python3 bin/cluster.py syndrome --out $OUT
+```
+
+## 5. 可选：L4 下钻（只在叶子 ≥300 时）
+
+1. 从 `leaves.tsv` 挑 `items ≥ 300` 的叶子；
+2. 每个叶子先派 1 个归纳代理（`prompts/02_l4_induct.md`），确认能写出互斥 include/exclude；
+3. 再按 200 条分片派归类代理（`prompts/03_l4_assign.md`），path 写成 `P.M2.1.1`；
+4. L4 节点元数据写入 `taxonomy/l4_nodes.json`，再重跑 `aggregate`（会自动挂到第 4 层）。
+
+## 6. 可选：质量抽检
+
+- 抽样：分层 600 条（每叶 ≥3），两份独立标注 → `prompts/04_audit.md`；
+- 算 Krippendorff α（脚本见 `bin/krippendorff.py`）；
+- α < 0.6 的叶子：改 `definition/include/exclude` 后重标，不接受"凑合"。
+
+## 7. 交付清单（缺一不可）
+
+```
+cluster_tree.json     主树（含 samples 定位）
+cluster_tree.txt      人读版
+cluster_summary.md    分布 + 标签 + Top 模式
+cluster_matrix.png    环节×机制矩阵
+item_index.jsonl      全量索引（seq → path + 定位）
+syndrome.md/json      会话级组合
+leaves.tsv            叶子明细表
+MANIFEST.json         版本、规模、文件校验和
+```
+
+## 8. 交付话术
+
+同时给出三件事，不要只丢文件：
+1. **最大单点**（会话数最高的 1–3 个叶子）；
+2. **最普遍的机制**（L2 排名）与它和 L1 的交叉；
+3. **诚实刻度**（edge 比例、α、定位校验结果）。

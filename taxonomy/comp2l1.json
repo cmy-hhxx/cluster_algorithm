@@ -1,0 +1,19 @@
+{
+ "planner-finquery": "S1",
+ "planner-search": "S2",
+ "stock_ner_parse": "S2",
+ "finquery": "S3",
+ "shell": "S4",
+ "query_user_positions": "S4",
+ "web_search": "S5",
+ "web_fetch": "S5",
+ "customer_services": "S6",
+ "aime_memory_read": "S7",
+ "aime_memory_write": "S7",
+ "get_user_context": "S7",
+ "view_skill/read_file": "S8",
+ "understand_image": "S8",
+ "终稿生成轮": "S9",
+ "中间推理处理": "S9",
+ "display": "S9"
+}

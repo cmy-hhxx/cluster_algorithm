@@ -1,0 +1,74 @@
+{
+ "bundle": "归因问题聚类树",
+ "pipeline_version": {
+  "version": "1.1.0",
+  "taxonomy": "three-axis-v1 (5 环节 / 7 机制 / 91 模式)",
+  "created": "2026-10-28",
+  "notes": "l4_nodes.json 为空表示当前停在 L3"
+ },
+ "generated_at": "2026-10-29T13:28:23+08:00",
+ "dataset": {
+  "total_items": 13002,
+  "total_traces": 3157,
+  "total_sessions": 1627,
+  "total_cases": 3157
+ },
+ "tree": {
+  "depth": 3,
+  "level1": 5,
+  "level2": 27,
+  "level3": 91,
+  "level4": 0
+ },
+ "quality": {
+  "edge_flagged": 2295,
+  "edge_rate": 0.1765
+ },
+ "files": [
+  {
+   "name": "cluster_tree.json",
+   "bytes": 470696,
+   "sha256_16": "6230b8c6672a2e79"
+  },
+  {
+   "name": "cluster_tree.txt",
+   "bytes": 8918,
+   "sha256_16": "bbbf72297e76d16d"
+  },
+  {
+   "name": "cluster_summary.md",
+   "bytes": 7335,
+   "sha256_16": "1d47507d49235d9c"
+  },
+  {
+   "name": "cluster_matrix.png",
+   "bytes": 81199,
+   "sha256_16": "0d5b811d00fc62f7"
+  },
+  {
+   "name": "item_index.jsonl",
+   "bytes": 15436957,
+   "sha256_16": "69671217dfbf755f"
+  },
+  {
+   "name": "syndrome.md",
+   "bytes": 2497,
+   "sha256_16": "8a99777f9d6c98d2"
+  },
+  {
+   "name": "syndrome.json",
+   "bytes": 7365,
+   "sha256_16": "d99fcbd3964c55b5"
+  },
+  {
+   "name": "leaves.tsv",
+   "bytes": 8253,
+   "sha256_16": "89376250495eb182"
+  }
+ ],
+ "notes": [
+  "主口径为会话数，条目数作附列。",
+  "每个叶子内嵌 samples，含 case_id/session_id/trace_id/src_file/src_line/json_path。",
+  "item_index.jsonl 为全量索引，可用 bin/cluster.py recall 召回。"
+ ]
+}
