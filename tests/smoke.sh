@@ -16,7 +16,7 @@ for f in glob.glob(os.path.join(run, 'assign', '*.jsonl')):
         for r in rows:
             fh.write(json.dumps({'seq': r['seq'], 'path': m[r['component']], 'edge': False}) + '\n')
 PY
-./run.sh finish "$TMP/run" "$TMP/out" 3 "$ROOT/.." >/dev/null
-python3 "$ROOT/bin/cluster.py" verify --work "$TMP/run" --out "$TMP/out" --src "$ROOT/.." | tail -1
+./run.sh finish "$TMP/run" "$TMP/out" 3 "$ROOT/tests" >/dev/null
+python3 "$ROOT/bin/cluster.py" verify --work "$TMP/run" --out "$TMP/out" --src "$ROOT/tests" | tail -1
 rm -rf "$TMP"
 echo "SMOKE OK"
