@@ -4,3 +4,4 @@ __pycache__/
 .servers.conf
 .venv/
 .deploy/
+runs/

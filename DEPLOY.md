@@ -28,9 +28,48 @@
 | `.deploy/git-known-hosts` | 固定主机指纹 | 否 |
 | `.deploy/fonts/wqy-zenhei.ttc` | 中文字体（服务器无 CJK 字体） | 否 |
 | `.deploy/env.sh` | PATH 与字体环境变量 | 否 |
+| `.deploy/dsh-home` | DSH 配置与会话（DSH_HOME） | 否 |
 | `.venv/` | Python 3.12 + Pillow | 否 |
 
 `chart` 子命令需要 CJK 字体；`CLUSTER_CHART_FONT` 未设置时回退到 macOS 字体路径。
+
+## 在服务器上跑 DSH（聚类）
+
+DSH 装在 `/opt/dsh`（本地盘）。**不要装到 `/mnt/fin_bench`**：那是 ceph-fuse，写 node_modules 的几万个小文件会慢到不可用（同一份拷贝：本地盘 2 秒，ceph 15 分钟没写完）。
+
+| 项 | 值 |
+|---|---|
+| DSH | `/opt/dsh`，`@deepseek-ai/dsh@0.2.1-rc.4` |
+| DSH_HOME | `.deploy/dsh-home`（配置 + 会话，体积小） |
+| profile patch | `$DSH_HOME/profiles/headless/cordis.patch.yml` |
+| 模型 | `eval-gw1` / `eval-gw2`，`deepseek-v4.1-flash`，`openai-responses`，524288 / 32768 |
+| 子代理 | `maxActiveSubagents: 32`（DSH 默认 8） |
+| 权限 | 沙箱 `workspace-write` + `approval: never`（无人值守） |
+| skill | `~/.agents/skills/attribution-cluster` → 仓库 `skill/` |
+
+跑一次：
+
+```bash
+cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
+tmux new -s cluster
+./run_cluster.sh <输入> <run_dir> <out_dir> [全量会话数] [cases 目录]
+```
+
+长任务放 tmux；事件流写到 `<out_dir>/dsh-<时间>.jsonl`，`tail -f` 看进度，`grep '"type":"final"'` 取最终答复。
+
+两个坑：
+
+- 服务器全局有 `HTTP_PROXY`，`interactive-*` 必须进 `NO_PROXY`（已在 `.deploy/env.sh` 里）；否则网关请求会被 squid 拦成 403。
+- headless 没有人工批准通道，`approval.policy` 必须是 `never`；`permission.defaultPreset` 要显式指定，否则启动会报 "composed sandbox and approval defaults match no preset"。
+
+实例重建后重装：
+
+```bash
+mkdir -p /opt/dsh && cd /opt/dsh && npm i --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.4
+```
+
+DSH_HOME 和配置在 ceph 上，不会丢。
+
 
 ## 日常发布
 
