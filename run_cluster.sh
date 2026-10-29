@@ -11,6 +11,11 @@ OUT=${3:?out_dir}
 SESSIONS=${4:-0}
 CASES=${5:-}
 
+# 相对路径按调用时的 cwd 解析成绝对路径（下面会切到 sync_datasets）
+abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;; esac; }
+SRC=$(abspath "$SRC"); RUN=$(abspath "$RUN"); OUT=$(abspath "$OUT")
+if [ -n "$CASES" ]; then CASES=$(abspath "$CASES"); fi
+
 mkdir -p "$OUT"
 LOG="$OUT/dsh-$(date +%Y%m%d-%H%M%S).jsonl"
 
