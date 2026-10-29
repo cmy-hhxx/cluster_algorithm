@@ -62,10 +62,35 @@ tmux new -s cluster
 - 服务器全局有 `HTTP_PROXY`，`interactive-*` 必须进 `NO_PROXY`（已在 `.deploy/env.sh` 里）；否则网关请求会被 squid 拦成 403。
 - headless 没有人工批准通道，`approval.policy` 必须是 `never`；`permission.defaultPreset` 要显式指定，否则启动会报 "composed sandbox and approval defaults match no preset"。
 
+### 沙箱后端（bwrap）
+
+`workspace-write` 在 Linux 上走 bubblewrap。这台容器内核 5.4（没有 Landlock）、没有 `CAP_SYS_ADMIN`，所以要多做一步：
+
+```bash
+apt-get install -y bubblewrap
+cat > /usr/local/bin/bwrap <<'EOF'
+#!/usr/bin/env bash
+# 容器没有 CAP_SYS_ADMIN：bwrap 必须自建 user namespace，且 seccomp 拒绝在其中挂 /proc
+args=(); skip=0
+for a in "$@"; do
+  if (( skip )); then skip=0; continue; fi
+  if [[ $a == --proc ]]; then skip=1; continue; fi
+  args+=("$a")
+done
+exec /usr/bin/bwrap --unshare-user "${args[@]}"
+EOF
+chmod 755 /usr/local/bin/bwrap
+```
+
+验证：`bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true`。
+
+没有这个 shim，DSH 的所有 bash 调用会在 shell 启动前被拒绝（`no sandbox backend is usable on this host`），agent 只能读文件、不能跑 `run.sh`。退路是改用 `danger-full-access`（无沙箱、root 全盘可写），不推荐。
+
 实例重建后重装：
 
 ```bash
 mkdir -p /opt/dsh && cd /opt/dsh && npm i --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.4
+apt-get install -y bubblewrap   # 再按上面写 shim
 ```
 
 DSH_HOME 和配置在 ceph 上，不会丢。

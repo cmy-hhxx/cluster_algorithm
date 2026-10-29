@@ -104,7 +104,7 @@ import json,sys
 src=[json.loads(l) for l in open('{{RUN}}/assign/{{CHUNK}}.jsonl') if l.strip()]
 out=[json.loads(l) for l in open('{{RUN}}/assign/{{CHUNK}}.out.jsonl') if l.strip()]
 import re
-valid=set(re.findall(r'^\| ({{L1}}\.[A-Z0-9.]+) \|', open('{{ROOT}}/taxonomy/INV_{{L1}}.md').read(), re.M))
+valid=set(re.findall(r'^\| `({{L1}}\.[A-Z0-9.]+)` \|', open('{{ROOT}}/taxonomy/INV_{{L1}}.md').read(), re.M))
 assert len(out)=={{N}}, f'rows {len(out)}'
 assert {r["seq"] for r in out}=={r["seq"] for r in src}, 'seq mismatch'
 assert all(r["path"] in valid for r in out), 'invalid path: '+str({r["path"] for r in out}-valid)
