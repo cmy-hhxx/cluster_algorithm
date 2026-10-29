@@ -162,7 +162,7 @@ cluster_algorithm/
 └── examples/              参考产物（当前批次）
 ```
 
-## 13. 怎么触发（完整教程见 TUTORIAL.md）
+## 13. 怎么触发
 
 在 DSH 里说一句：
 

@@ -144,8 +144,16 @@ python3 bin/cluster.py aggregate --work ./run --out ./out
 
 ## 7. 排错
 
+先跑一遍冒烟测试，确认代码本身没问题：
+
+```bash
+./tests/smoke.sh        # 3 条样本走完 init → 归类 → finish → verify，输出 SMOKE OK
+```
+
+
 | 现象 | 原因 | 处理 |
 |---|---|---|
+| `FileNotFoundError: .../attributions` | 输入路径写错或数据已移动 | 用绝对路径，先 `ls` 确认 |
 | `bad_lines > 0` | 源 JSON 有坏行 | `run/stats.json` 里有行号，先修数据或剔除 |
 | `未登记 component` | 新工具 | 见 §5 |
 | `verify` 报 `index path counts != tree counts` | 有分片没跑完/路径越界 | 看 `assign/manifest.json` 哪些 chunk 缺 `.out.jsonl` |

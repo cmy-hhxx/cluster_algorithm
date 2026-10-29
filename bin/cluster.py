@@ -461,7 +461,9 @@ def cmd_verify(a):
                 cache[f] = read_lines(f)
             try:
                 rec = json.loads(cache[f][s['src_line'] - 1])
-                p = rec['turns'][int(s['json_path'].split('[')[1].split(']')[0])]['problem'][s['problem_index']]
+                turn = rec['turns'][int(s['json_path'].split('[')[1].split(']')[0])]
+                probs = as_list(turn.get('problem'))
+                p = probs[s['problem_index']]
                 if p['label'] != s['label']:
                     mism += 1
             except Exception as e:
