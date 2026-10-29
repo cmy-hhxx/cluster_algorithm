@@ -23,29 +23,41 @@
 
 ---
 
-## 1. 最短路径：在 DSH 里说一句
+## 1. 最短路径：说一句话
+
+模型网关（`interactive-*`）只有内网可达，所以真正的聚类在服务器上跑；本机只负责发起和看结果。
+
+在这台 DSH 里说：
 
 ```
-用 cluster_algorithm 聚类：/path/to/attribution.jsonl，输出到 /path/to/out
+把 /mnt/fin_bench/sync_datasets/datasets/<批次>/attribution.jsonl 聚一下
 ```
 
-我会做这几步（你也可以照着自己跑）：
+我会在服务器上执行 `run_cluster.sh`（见 §2），跑完把 8 个文件和三个数给你。
 
-1. `./run.sh init <数据> <run目录> [cases目录]` —— 解析 + 按段分片（确定性，秒级）
-2. 对每个分片派一个归类代理（提示词 `prompts/01_assign.md`，**并发上限 8**）
-3. `./run.sh finish <run目录> <输出目录> <全量会话数> <数据目录>` —— 聚合 + 校验 + 出报告
+背后的动作：
+
+1. `run.sh init` —— 解析 + 按段分片（确定性，秒级）
+2. 对每个分片派一个归类代理（提示词 `prompts/01_assign.md`，**并发上限 32**，DSH `maxActiveSubagents`）
+3. `run.sh finish` —— 聚合 + 校验 + 出报告
 4. 报三个数：最大单点、最普遍机制、质量刻度
 
-耗时参考：13,000 条约 67 个分片，8 并发跑完约 **40 分钟**。
+耗时参考：片数 ÷ 32 向上取整就是批次数，每批受最慢一片约束；3 条 fixture 实测约 5 分钟。
 
 ---
 
-## 2. 自己跑（分步）
+## 2. 自己跑（在服务器上，分步）
 
 ```bash
-cd ~/Desktop/cluster_algorithm
+ssh -p 3929 -i <key> root@117.50.195.94
+cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
+tmux new -s cluster
 
-# ① 解析 + 分片
+# 一条命令跑完（推荐）
+./run_cluster.sh /mnt/fin_bench/sync_datasets/datasets/<批次>/attribution.jsonl \
+  runs/<批次>/run runs/<批次>/out [全量会话数] [cases 目录]
+
+# 手动分步（调试用）
 ./run.sh init /path/to/attribution.jsonl ./run /path/to/eval_session_inputs
 #    → run/items.jsonl  run/locators.jsonl  run/assign/*.jsonl  run/assign/manifest.json
 
@@ -183,9 +195,10 @@ python3 bin/krippendorff.py audit/a/all.jsonl audit/b/all.jsonl
 ## 9. 一页速查
 
 ```bash
-./run.sh init <数据> <run> [cases]        # 解析+分片
-#  → 派归类代理（prompts/01_assign.md，8 并发）
-./run.sh finish <run> <out> <会话数> <数据目录>   # 聚合+校验+报告
+./run_cluster.sh <数据> <run> <out> [会话数] [cases]   # 服务器上一条命令跑完（推荐）
+./run.sh init <数据> <run> [cases]                     # 解析+分片
+#  → 派归类代理（prompts/01_assign.md，32 并发）
+./run.sh finish <run> <out> <会话数> <数据目录>         # 聚合+校验+报告
 
 python3 bin/cluster.py recall --node <叶> --out <out> [--full]   # 召回
 python3 bin/krippendorff.py <a.jsonl> <b.jsonl>                  # 信度
