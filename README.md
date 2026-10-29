@@ -3,6 +3,8 @@
 对一批「流失用户评测归因」问题条目做聚类，产出一棵可下钻、可回溯、可复算的树。
 **输入只有 attribution.jsonl；输出是一组固定文件。**
 
+服务器部署与运行方式见 [DEPLOY.md](DEPLOY.md)。
+
 ## 1. 聚类单元
 
 - 单元 = **原子归因条目**：归因模型指出的一个具体失效动作，自带 `component`（链路环节）、`label`、`definition`、`reason`、`evidence`。
