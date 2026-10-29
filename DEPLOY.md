@@ -1,70 +1,202 @@
-# 部署与服务器运行
+# 部署与运行手册
 
-代码跑在 `.servers.conf` 的 `[cluster_agent_server]` 上。
+这套东西只有一条链路：
+
+```
+本地改代码 → git push 内网仓库 → 服务器 ./deploy.sh 拉取 → 服务器上用 DSH headless 跑聚类
+```
+
+本地只开发，服务器只拉取、只运行。**不要在服务器上改代码**（`deploy.sh` 会因工作区有改动直接停下）。
+
+---
+
+## 1. 环境事实
 
 | 项 | 值 |
 |---|---|
-| 服务器 | `117.50.195.94:3929`（root，key 认证） |
+| 服务器 | `117.50.195.94:3929`，root，key 认证（见 `.servers.conf`） |
 | 代码目录 | `/mnt/fin_bench/sync_datasets/code/2_cluster_algorithm` |
 | 数据目录 | `/mnt/fin_bench/sync_datasets/datasets` |
-| 仓库 | `ssh://git@interactive-n01laf763gwn:22/chenmingyang2/cluster_algorithm.git` |
+| 仓库 | `ssh://git@interactive-n01laf763gwn:22/chenmingyang2/cluster_algorithm.git`（Forgejo） |
+| 规格 | 16 核 / 约 2TB 内存（cgroup 上限 120GiB）/ 无 swap |
+| 内核 | 5.4（**没有 Landlock**），容器内**没有 `CAP_SYS_ADMIN`** |
+| 存储 | `sync_datasets` 是 **ceph-fuse** 网络盘；`/`、`/opt`、`/tmp` 是本地盘 |
+| 运行时 | node 24.14 / npm 11 / python 3.12 / tmux |
+| 代理 | 全局 `HTTP_PROXY`/`HTTPS_PROXY` 指向公司 squid |
 
-本地只开发；服务器只拉取、只运行，不在服务器上改代码。
+后四条决定了下面几乎所有的"为什么"。**ceph-fuse 慢、没有 CAP_SYS_ADMIN、有全局代理**——这三件事各踩过一次坑。
 
-## 链路
+---
 
-1. 本地提交并 `git push origin main`；
-2. 服务器执行 `./deploy.sh`：`git fetch` + `git merge --ff-only` + 冒烟测试；
-3. 跑业务：`source .deploy/env.sh`，然后 `./run.sh` 或 `python3 bin/cluster.py ...`。
-
-只接受快进合并。远端和服务器一旦分叉，部署会直接停下，不会自动 merge。
-
-## 服务器布局
+## 2. 目录布局
 
 | 路径 | 用途 | 入库 |
 |---|---|---|
-| `.` | main 分支 checkout | 是 |
-| `.deploy/git-readonly(.pub)` | 仓库级只读部署密钥 | 否 |
+| `.`（仓库根） | main 分支 checkout | 是 |
+| `skill/SKILL.md` | skill 定义（DSH 从这里读） | 是 |
+| `run_cluster.sh` | 服务器上跑一次聚类的入口 | 是 |
+| `deploy.sh` | 服务器拉取 + 冒烟 | 是 |
+| `.deploy/git-readonly(.pub)` | 仓库级**只读**部署密钥 | 否 |
 | `.deploy/git-known-hosts` | 固定主机指纹 | 否 |
-| `.deploy/fonts/wqy-zenhei.ttc` | 中文字体（服务器无 CJK 字体） | 否 |
-| `.deploy/env.sh` | PATH 与字体环境变量 | 否 |
-| `.deploy/dsh-home` | DSH 配置与会话（DSH_HOME） | 否 |
+| `.deploy/fonts/wqy-zenhei.ttc` | 中文字体（服务器没有 CJK 字体） | 否 |
+| `.deploy/env.sh` | PATH / 字体 / DSH_HOME / NO_PROXY | 否 |
+| `.deploy/dsh-home/` | DSH 配置与会话（`DSH_HOME`） | 否 |
 | `.venv/` | Python 3.12 + Pillow | 否 |
+| `runs/` | 聚类产物 | 否 |
+| `/opt/dsh/` | DSH 安装（**本地盘**） | 否 |
+| `~/.agents/skills/attribution-cluster` | 指向 `skill/` 的软链 | 否 |
 
-`chart` 子命令需要 CJK 字体；`CLUSTER_CHART_FONT` 未设置时回退到 macOS 字体路径。
+---
 
-## 在服务器上跑 DSH（聚类）
+## 3. 日常开发与发布
 
-DSH 装在 `/opt/dsh`（本地盘）。**不要装到 `/mnt/fin_bench`**：那是 ceph-fuse，写 node_modules 的几万个小文件会慢到不可用（同一份拷贝：本地盘 2 秒，ceph 15 分钟没写完）。
+```bash
+# 本地
+git commit -am "..." && git push origin main
 
-| 项 | 值 |
-|---|---|
-| DSH | `/opt/dsh`，`@deepseek-ai/dsh@0.2.1-rc.4` |
-| DSH_HOME | `.deploy/dsh-home`（配置 + 会话，体积小） |
-| profile patch | `$DSH_HOME/profiles/headless/cordis.patch.yml` |
-| 模型 | `eval-gw1` / `eval-gw2`，`deepseek-v4.1-flash`，`openai-responses`，524288 / 32768 |
-| 子代理 | `maxActiveSubagents: 32`（DSH 默认 8） |
-| 权限 | 沙箱 `workspace-write` + `approval: never`（无人值守） |
-| skill | `~/.agents/skills/attribution-cluster` → 仓库 `skill/` |
+# 服务器
+ssh cluster_agent_server 'cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm && ./deploy.sh'
+```
 
-跑一次：
+`deploy.sh` 做三件事：`git fetch` → `git merge --ff-only` → 跑 `tests/smoke.sh`。只接受快进合并；服务器和远端一旦分叉就停下，不会自动 merge。
+
+冒烟通过的标准输出：
+
+```
+leaves=3 total=3 locator_mismatch=0 errors=0
+SMOKE OK
+updated to <sha>
+```
+
+---
+
+## 4. 在服务器上跑聚类
+
+### 4.1 跑一次
 
 ```bash
 cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
-tmux new -s cluster
-./run_cluster.sh <输入> <run_dir> <out_dir> [全量会话数] [cases 目录]
+tmux new -s cluster          # 长任务必须放 tmux，否则 SSH 断线就没了
+./run_cluster.sh <输入 jsonl 或目录> <run_dir> <out_dir> [全量会话数] [cases 目录]
 ```
 
-长任务放 tmux；事件流写到 `<out_dir>/dsh-<时间>.jsonl`，`tail -f` 看进度，`grep '"type":"final"'` 取最终答复。
+`run_cluster.sh` 会把工作区设成 `sync_datasets`（这样 `datasets/` 可读、`code/` 可写，都在沙箱内），然后用 `dsh --profile headless --json` 跑一次，事件流写到 `<out_dir>/dsh-<时间>.jsonl`。
 
-两个坑：
+看进度和结果：
 
-- 服务器全局有 `HTTP_PROXY`，`interactive-*` 必须进 `NO_PROXY`（已在 `.deploy/env.sh` 里）；否则网关请求会被 squid 拦成 403。
-- headless 没有人工批准通道，`approval.policy` 必须是 `never`；`permission.defaultPreset` 要显式指定，否则启动会报 "composed sandbox and approval defaults match no preset"。
+```bash
+tail -f <out_dir>/dsh-*.jsonl                                  # 实时事件流
+grep '"type":"final"' <out_dir>/dsh-*.jsonl | tail -1          # 最终答复
+grep -o 'leaves=[0-9]* total=[0-9]* locator_mismatch=[0-9]* errors=[0-9]*' <out_dir>/dsh-*.jsonl | tail -1
+```
 
-### 沙箱后端（bwrap）
+交付物是 8 个文件：`cluster_tree.json/txt`、`cluster_summary.md`、`cluster_matrix.png`、`item_index.jsonl`、`syndrome.json/md`、`leaves.tsv`、`MANIFEST.json`。`verify` 必须 `errors=0` 且 `locator_mismatch=0`。
 
-`workspace-write` 在 Linux 上走 bubblewrap。这台容器内核 5.4（没有 Landlock）、没有 `CAP_SYS_ADMIN`，所以要多做一步：
+> 时间预期：fixture 3 条大约 10 分钟（绝大部分是模型与工具往返，不是计算）。真实数据按分片数线性增长，32 并发下会明显快于 8 并发。
+
+### 4.2 DSH 配置
+
+| 项 | 值 |
+|---|---|
+| 版本 | `@deepseek-ai/dsh@0.2.1-rc.4`，装在 `/opt/dsh` |
+| DSH_HOME | `.deploy/dsh-home` |
+| profile | `$DSH_HOME/profiles/headless/cordis.patch.yml` |
+| 模型 | `eval-gw1`（默认）/ `eval-gw2`，`deepseek-v4.1-flash` |
+| 协议 | `openai-responses` |
+| 容量 | `contextWindow: 524288`、`maxTokens: 32768` |
+| 子代理 | `maxActiveSubagents: 32`（DSH 默认 8） |
+| 权限 | 沙箱 `workspace-write` + `approval: never` |
+| 凭据 | `$DSH_HOME/.env` 里 `EVAL_GATEWAY_API_KEY=dummy`（网关不校验 key，随便填） |
+
+profile patch 全文（丢了就照这个重建）：
+
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      eval-gw1:
+        apiKeyEnv: EVAL_GATEWAY_API_KEY
+        api: openai-responses
+        baseURL: http://interactive-s4lvy0mmvu32:5001/v1/
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash
+            contextWindow: 524288
+            maxTokens: 32768
+      eval-gw2:
+        apiKeyEnv: EVAL_GATEWAY_API_KEY
+        api: openai-responses
+        baseURL: http://interactive-djahh4fczrhq:5001/v1/
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash (备用)
+            contextWindow: 524288
+            maxTokens: 32768
+
+- id: agent-default-model
+  config:
+    provider: eval-gw1
+    model: deepseek-v4.1-flash
+
+- id: subagent
+  config:
+    maxActiveSubagents: 32
+
+- id: approval
+  config:
+    policy: never
+- id: permission
+  config:
+    defaultPreset: workspace-write-auto
+    presets:
+      read-only: {sandbox: read-only, approval: ask}
+      workspace-write: {sandbox: workspace-write, approval: ask}
+      workspace-write-auto: {sandbox: workspace-write, approval: never}
+      danger-full-access: {sandbox: danger-full-access, approval: never}
+```
+
+换默认网关：改 `agent-default-model.provider` 为 `eval-gw2` 即可，下一次请求生效。
+
+### 4.3 skill 怎么被加载
+
+DSH 扫 `~/.agents/skills`。服务器上：
+
+```bash
+ln -sfn /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm/skill ~/.agents/skills/attribution-cluster
+```
+
+`SKILL.md` 里写的是"仓库 = 本文件所在目录的上一级"，所以必须通过这个软链，仓库挪了位置也不用改 skill。
+
+验证：
+
+```bash
+cd /mnt/fin_bench/sync_datasets && source code/2_cluster_algorithm/.deploy/env.sh
+dsh --profile headless "只回答：你当前可用的 skill 名称列表"
+# 应输出 attribution-cluster
+```
+
+---
+
+## 5. 踩过的坑（现象 / 原因 / 处理）
+
+### 5.1 ceph-fuse 上装 node_modules
+
+- **现象**：`npm i @deepseek-ai/dsh` 或 `cp -a node_modules` 在 `/mnt/fin_bench` 下十几分钟写不完。
+- **原因**：`sync_datasets` 是 ceph-fuse，几万个小文件的元数据操作极慢；同一份拷贝到本地盘只要 2 秒。
+- **处理**：DSH 装 `/opt/dsh`，只在 ceph 上放体积小的配置（`DSH_HOME`）。**任何 `node_modules`、`site-packages` 都不要放 `/mnt/fin_bench`。**
+
+### 5.2 全局代理把网关请求拦成 403
+
+- **现象**：headless 报错，正文是 `proxy.ucwlcc.com (squid) ... ERR_ACCESS_DENIED`。
+- **原因**：服务器全局有 `HTTP_PROXY`，请求 `interactive-*` 走了 squid。
+- **处理**：`.deploy/env.sh` 里已设 `NO_PROXY`（含两个网关和 `interactive-n01laf763gwn`）。手工跑 DSH 前记得 `source .deploy/env.sh`。
+
+### 5.3 沙箱后端不可用，所有 bash 调用被拒
+
+- **现象**：agent 一步都跑不了，报
+  `sandbox mode "workspace-write" is requested but no sandbox backend is usable on this host`。
+- **原因**：Linux 上 `workspace-write` 走 bubblewrap；这台容器内核 5.4（无 Landlock）且没有 `CAP_SYS_ADMIN`，bwrap 直接跑会 `Creating new namespace failed: Operation not permitted`。
+- **处理**：装 bubblewrap + 放一个 shim（补 `--unshare-user`、去掉 `--proc`，因为 seccomp 拒绝在 user namespace 里挂 proc）：
 
 ```bash
 apt-get install -y bubblewrap
@@ -84,53 +216,117 @@ chmod 755 /usr/local/bin/bwrap
 
 验证：`bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true`。
 
-没有这个 shim，DSH 的所有 bash 调用会在 shell 启动前被拒绝（`no sandbox backend is usable on this host`），agent 只能读文件、不能跑 `run.sh`。退路是改用 `danger-full-access`（无沙箱、root 全盘可写），不推荐。
+退路是改成 `danger-full-access`（无沙箱、root 全盘可写），不推荐。
 
-实例重建后重装：
+### 5.4 rc.4 的 headless 没有 `--permission-mode` / `--approval-policy`
 
-```bash
-mkdir -p /opt/dsh && cd /opt/dsh && npm i --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.4
-apt-get install -y bubblewrap   # 再按上面写 shim
-```
+- **现象**：`error: unknown option '--permission-mode'`。
+- **原因**：官网文档跟的是 master，rc.4 的 headless 只有 `--json` 和 `--session-id`；权限只能通过 profile patch 配。
+- **处理**：见 §4.2 里的 `approval` / `permission` 两段。升级到带这两个参数的版本后再改回命令行传参。
 
-DSH_HOME 和配置在 ceph 上，不会丢。
+### 5.5 `permission: composed sandbox and approval defaults match no preset`
 
+- **现象**：启动打一行 warning，`permission` 插件没激活（但任务还能跑）。
+- **原因**：`sandbox=workspace-write` + `approval=never` 这个组合不在预设表里，且没指定 `defaultPreset`。
+- **处理**：`permission.defaultPreset: workspace-write-auto`，并在 `presets` 里补上这个组合（见 §4.2）。
 
-## 日常发布
+### 5.6 DSH 看不到 skill
 
-```bash
-git commit -am "..." && git push origin main          # 本地
-ssh <server> 'cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm && ./deploy.sh'
-```
+- **现象**：问 agent 有哪些 skill，答不出来。
+- **原因**：`~/.agents/skills/attribution-cluster` 没建、软链断了，或 `SKILL.md` 不在目标目录里。
+- **处理**：`ls -l ~/.agents/skills/attribution-cluster/` 应能看到 `SKILL.md`；软链目标必须是仓库里的 `skill/` 目录。
 
-## 首次初始化
+### 5.7 冒烟测试在服务器上卡死
 
-实例重建后，`.deploy/` 与 `.venv/` 若丢失，按下面顺序恢复：
+- **现象**：`deploy.sh` 卡在 `cluster.py verify` 不动。
+- **原因**：`tests/smoke.sh` 原来用 `--src "$ROOT/.."`，`verify` 找不到文件时会递归 glob 整个父目录；在 Mac 上父目录是 Desktop，在服务器上是整个 `code/`（含 0_frontend），直接扫爆。
+- **处理**：已改成 `--src "$ROOT/tests"`（`eeef87f`），直接命中，不触发 glob。
+
+### 5.8 归类自检永远误报 path 非法
+
+- **现象**：子代理跑 `prompts/01_assign.md` §8 的自检，9 个 INV 文件全部 0 命中。
+- **原因**：正则 `^\| ({{L1}}\.[A-Z0-9.]+) \|` 没考虑 INV 表首列的反引号（实际是 `` | `S3.M3.2` | ``）。
+- **处理**：已改成 `` ^\| `({{L1}}\.[A-Z0-9.]+)` \| ``（`2aaddc8`）。
+
+### 5.9 部署密钥 push 被拒
+
+- **现象**：服务器上 `git push` 报权限错误。
+- **原因**：`.deploy/git-readonly` 是**只读**部署密钥，这是预期行为。
+- **处理**：不用管；服务器只拉不推。
+
+### 5.10 SSH 断线把长任务带走
+
+- **现象**：聚类跑到一半没了。
+- **原因**：任务挂在 SSH 会话下。
+- **处理**：`tmux new -s cluster` 里跑；重连用 `tmux a -t cluster`。事件流已经落盘，断了也能从日志判断进度。
+
+### 5.11 实例重建后 `/opt/dsh` 消失
+
+- **现象**：`dsh: command not found`。
+- **原因**：`/opt` 是容器本地盘，重建即丢；ceph 上的 `.deploy/` 不会丢。
+- **处理**：按 §6 重建。
+
+---
+
+## 6. 重建清单（实例重建 / 换机器时照做）
 
 ```bash
 cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
-mkdir -p .deploy/fonts
-ssh-keygen -q -t ed25519 -N "" -C "ths_cluster_agent readonly" -f .deploy/git-readonly
-cat .deploy/git-readonly.pub        # 加到仓库 Settings → Deploy keys，只读
-ssh-keyscan -p 22 interactive-n01laf763gwn > .deploy/git-known-hosts
+
+# 1) Python 运行时
 python3 -m venv .venv && .venv/bin/pip install pillow
+
+# 2) 中文字体（chart 需要）
+mkdir -p .deploy/fonts
 apt-get download fonts-wqy-zenhei && dpkg-deb -x fonts-wqy-zenhei_*.deb /tmp/wqy
 cp /tmp/wqy/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc .deploy/fonts/
-printf '%s\n' 'D=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)' \
-  'export PATH="$D/.venv/bin:$PATH"' \
-  'export CLUSTER_CHART_FONT="$D/.deploy/fonts/wqy-zenhei.ttc"' > .deploy/env.sh
+
+# 3) DSH（本地盘）
+mkdir -p /opt/dsh && cd /opt/dsh && npm i --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.4
+
+# 4) 沙箱
+apt-get install -y bubblewrap   # 再按 §5.3 写 /usr/local/bin/bwrap
+
+# 5) 环境变量
+#    .deploy/env.sh 应包含：
+#    PATH（.venv + /opt/dsh/node_modules/.bin）、CLUSTER_CHART_FONT、
+#    DSH_HOME=$D/.deploy/dsh-home、NO_PROXY（两个网关 + interactive-n01laf763gwn）
+
+# 6) DSH 配置
+#    $DSH_HOME/profiles/headless/cordis.patch.yml（见 §4.2）
+#    $DSH_HOME/.env: EVAL_GATEWAY_API_KEY=dummy
+
+# 7) skill
+mkdir -p ~/.agents/skills
+ln -sfn "$PWD/skill" ~/.agents/skills/attribution-cluster
+
+# 8) 代码与部署密钥（.deploy 还在就跳过）
 git init -q
 git remote add origin ssh://git@interactive-n01laf763gwn:22/chenmingyang2/cluster_algorithm.git
 git config core.sshCommand "ssh -F /dev/null -i $PWD/.deploy/git-readonly -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$PWD/.deploy/git-known-hosts -o StrictHostKeyChecking=yes"
 git fetch origin main && git checkout -f -B main origin/main
 ```
 
-## 排错
+`.deploy/git-readonly` 丢了就重新生成，把 `.pub` 加到 Forgejo 仓库 `Settings → Deploy keys`（只读）：
 
-| 现象 | 处理 |
-|---|---|
-| `Permission denied (publickey)` | 部署公钥没加，或加到了别的仓库 |
-| `Host key verification failed` | `.deploy/git-known-hosts` 缺失 / 指纹变化 |
-| `No module named 'PIL'` | 没 `source .deploy/env.sh` |
-| `OSError: cannot open resource` | 字体路径不存在，检查 `CLUSTER_CHART_FONT` |
-| `merge --ff-only` 失败 | 服务器和远端分叉，先确认服务器上没改代码，再 `git reset --hard origin/main` |
+```bash
+ssh-keygen -q -t ed25519 -N "" -C "ths_cluster_agent readonly" -f .deploy/git-readonly
+ssh-keyscan -p 22 interactive-n01laf763gwn > .deploy/git-known-hosts
+```
+
+---
+
+## 7. 排错速查
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `Permission denied (publickey)` | 部署公钥没加 / 加错仓库 | 重新加 deploy key |
+| `Host key verification failed` | `git-known-hosts` 缺失或主机指纹变了 | `ssh-keyscan -p 22 interactive-n01laf763gwn > .deploy/git-known-hosts` |
+| `merge --ff-only` 失败 | 服务器和远端分叉 | 确认服务器没改代码后 `git reset --hard origin/main` |
+| `No module named 'PIL'` | 没加载 venv | `source .deploy/env.sh` |
+| `OSError: cannot open resource` | 字体路径不存在 | 检查 `CLUSTER_CHART_FONT` 和 `.deploy/fonts/` |
+| 网关请求 403 / squid 页面 | 走了全局代理 | 确认 `NO_PROXY` 含网关主机名 |
+| `no sandbox backend is usable` | bwrap 没装或 shim 没生效 | 见 §5.3 |
+| `unknown option '--permission-mode'` | rc.4 不支持该参数 | 用 profile patch 配，见 §5.4 |
+| DSH 答不出 skill | 软链缺失/断开 | 见 §5.6 |
+| 冒烟卡在 `verify` | `--src` 指向了巨大目录 | 已在仓库里修好，`./deploy.sh` 拉最新即可 |
