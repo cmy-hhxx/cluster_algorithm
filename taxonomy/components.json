@@ -70,5 +70,25 @@
  "中间推理处理": {
   "tool": "中间推理处理",
   "label": "中间推理"
+ },
+ "其他工具（CodeInterpreter）": {
+  "tool": "CodeInterpreter",
+  "label": "代码解释器（客户端）"
+ },
+ "其他工具（shell_poll）": {
+  "tool": "shell_poll",
+  "label": "后台任务轮询"
+ },
+ "其他工具（CustomerServiceFAQ）": {
+  "tool": "CustomerServiceFAQ",
+  "label": "客服 FAQ 检索"
+ },
+ "其他工具（watchlist_manager）": {
+  "tool": "watchlist_manager",
+  "label": "自选股管理"
+ },
+ "其他工具（client_action）": {
+  "tool": "client_action",
+  "label": "客户端动作"
  }
 }

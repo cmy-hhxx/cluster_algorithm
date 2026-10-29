@@ -15,5 +15,10 @@
  "understand_image": "S8",
  "终稿生成轮": "S9",
  "中间推理处理": "S9",
- "display": "S9"
+ "display": "S9",
+ "CodeInterpreter": "S4",
+ "shell_poll": "S4",
+ "CustomerServiceFAQ": "S6",
+ "watchlist_manager": "S3",
+ "client_action": "S8"
 }

@@ -18,7 +18,8 @@
   "name": "结构化取数",
   "definition": "执行结构化取数与 SQL。含 finquery 取数服务。失效多为解析/执行报错、零行、字段丢失、口径错。",
   "components": [
-   "finquery"
+   "finquery",
+   "watchlist_manager"
   ]
  },
  "S4": {
@@ -26,7 +27,9 @@
   "definition": "在本地做取数编排、计算与图表。含 shell 代码解释器、持仓查询。失效多为脚本报错、数据占位、产物空白。",
   "components": [
    "shell",
-   "query_user_positions"
+   "query_user_positions",
+   "CodeInterpreter",
+   "shell_poll"
   ]
  },
  "S5": {
@@ -41,7 +44,8 @@
   "name": "客服知识库",
   "definition": "客服/帮助中心知识库的检索与答复。含 customer_services。失效多为超时、正文损坏、答非所问、编造入口。",
   "components": [
-   "customer_services"
+   "customer_services",
+   "CustomerServiceFAQ"
   ]
  },
  "S7": {
@@ -58,7 +62,8 @@
   "definition": "把外部能力装入上下文：技能文件加载、图像理解。含 view_skill/read_file、understand_image。失效多为加载失败、参数没带上、图像数值算错。",
   "components": [
    "view_skill/read_file",
-   "understand_image"
+   "understand_image",
+   "client_action"
   ]
  },
  "S9": {
