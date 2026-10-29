@@ -1,0 +1,55 @@
+{
+ "alpha": 0.918,
+ "n": 576,
+ "categories": 131,
+ "observed_agreement": 0.918,
+ "a_vs_original": 0.825,
+ "b_vs_original": 0.823,
+ "by_stage": {
+  "S1": {
+   "n": 80,
+   "alpha": 0.851,
+   "agree": 0.863
+  },
+  "S2": {
+   "n": 70,
+   "alpha": 0.939,
+   "agree": 0.943
+  },
+  "S3": {
+   "n": 128,
+   "alpha": 0.911,
+   "agree": 0.914
+  },
+  "S4": {
+   "n": 80,
+   "alpha": 0.974,
+   "agree": 0.975
+  },
+  "S5": {
+   "n": 35,
+   "alpha": 0.9,
+   "agree": 0.914
+  },
+  "S6": {
+   "n": 44,
+   "alpha": 0.821,
+   "agree": 0.841
+  },
+  "S7": {
+   "n": 11,
+   "alpha": 1.0,
+   "agree": 1.0
+  },
+  "S8": {
+   "n": 13,
+   "alpha": 1.0,
+   "agree": 1.0
+  },
+  "S9": {
+   "n": 115,
+   "alpha": 0.918,
+   "agree": 0.922
+  }
+ }
+}
