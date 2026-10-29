@@ -24,6 +24,9 @@ description: 对一批流失用户归因数据做三层聚类（环节/机制/�
 **并发上限以运行环境为准**：DSH 由 `subagent.maxActiveSubagents` 决定（本仓库服务器配 32，DSH 默认 8）。
 按上限分批，失败的片重试一次；超过上限会整批失败。
 
+**headless 下结束回合 = 任务终止**：派完子代理后必须在本回合内轮询 `assign/*.out.jsonl` 的数量，
+直到等于 manifest 的分片数，再跑 `finish`；不要只汇报进度就结束。
+
 ```bash
 ./run.sh finish <run_dir> <out_dir> <全量会话数> <源目录绝对路径>
 ```
