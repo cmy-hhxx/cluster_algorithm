@@ -361,10 +361,10 @@ def cmd_aggregate(a):
         sel = [p for p in assign.values() if p.split('.')[1] == m]
         if not sel:
             continue
-        mech.append({'mechanism': m, 'name': inv['l2'][m]['name'], 'count': len(sel),
+        mech.append({'mechanism': m, 'name': inv['l2'][m]['name'], 'definition': inv['l2'][m].get('definition', ''), 'count': len(sel),
                      'share': round(len(sel) / total, 4),
                      'sessions': len({items[s]['session_id'] for s, p in assign.items() if p.split('.')[1] == m}),
-                     'by_l1': {k: sum(1 for p in sel if p.startswith(k + '.')) for k in ['P', 'Q', 'S', 'A', 'T', 'X'] if any(p.startswith(k + '.') for p in sel)}})
+                     'by_l1': {k: sum(1 for p in sel if p.startswith(k + '.')) for k in ['S1','S2','S3','S4','S5','S6','S7','S8','S9'] if any(p.startswith(k + '.') for p in sel)}})
 
     sessions = {i['session_id'] for i in items.values()}
     tree = {
@@ -468,6 +468,8 @@ def cmd_verify(a):
                     mism += 1
             except Exception as e:
                 errs.append(f'locator broken seq={s["seq"]}: {e}')
+    jdump({'leaves': len(seen), 'total': total, 'locator_mismatch': mism,
+           'errors': len(errs), 'items': errs[:50]}, os.path.join(a.out, 'verify.json'))
     print(f'leaves={len(seen)} total={total} locator_mismatch={mism} errors={len(errs)}')
     for e in errs[:20]:
         print(' -', e)
@@ -475,6 +477,53 @@ def cmd_verify(a):
 
 
 # ---------------------------------------------------------------- report
+
+def write_brief(t, out):
+    """One-page, plain-language brief. No L1/L2 codes, no internal jargon."""
+    m, root = t['meta'], t['tree']
+    inv, _, _ = taxonomy()
+    leaves = [l3 for l1 in root['children'] for l2 in l1['children'] for l3 in l2['children']]
+    ranked = sorted([x for x in leaves if not x.get('low_sample')], key=lambda x: -x['sessions'])[:3]
+    low = [x for x in leaves if x.get('low_sample')]
+    L = ['# 这批问题，最该先修什么', '',
+         f"> 数据：{m['total_items']:,} 条问题，来自 {m['total_sessions']:,} 个会话"
+         + (f"（全量 {m['sessions_all']:,} 个）" if m.get('sessions_all') else '') + '。',
+         '> 一条问题只归一个类别；排名按会话数，不按条目数，避免“问题多的会话”放大。', '',
+         '## 结论', '']
+    for i, l3 in enumerate(ranked, 1):
+        l1 = next(x for x in root['children'] if any(l3 in l2['children'] for l2 in x['children']))
+        owner = l1['name']
+        sample = (l3.get('samples') or [{}])[0]
+        L += [f"### {i}. {l3['name']}（{l3['sessions']:,} 个会话，{l3['count']:,} 条）", '',
+              f"- **用户会遇到什么**：{l3.get('plain', '') or l3.get('definition', '')}",
+              f"- **一个真实例子**：{sample.get('label', '')}",
+              f"- **该谁修**：{owner}",
+              f"- **占全部条目**：{l3['share']:.1%}；同一会话只计 1 次。", '']
+    mech = sorted([dict(r, definition=r.get('definition') or inv['l2'].get(r['mechanism'], {}).get('definition', ''))
+                   for r in t['mechanism_rollup']], key=lambda r: -r.get('sessions', 0))
+    L += ['## 失效停在哪一层', '',
+          '| 机制 | 条目 | 会话 | 占比 | 用大白话说 |', '|---|---|---|---|---|']
+    for r in mech[:4]:
+        L.append(f"| {r['name']} | {r['count']:,} | {r.get('sessions', 0):,} | {r['share']:.1%} | {r.get('definition', '')} |")
+    top = mech[0] if mech else None
+    if top:
+        L += ['', f"最多的问题落在「{top['name']}」：{top.get('definition','')}"]
+    v = jload(os.path.join(out, 'verify.json'), {})
+    if m['edge_rate'] < 0.01:
+        edge_line = (f"- 边界标记：{m['edge_flagged']:,} 条（{m['edge_rate']:.1%}）。默认快速模式不跑双遍，"
+                     "这个数偏低；需要可靠的边界率请加 `--consensus 2` 重跑。")
+    else:
+        edge_line = f"- 边界不清：{m['edge_flagged']:,} 条（{m['edge_rate']:.1%}）标了 `edge`，优先复核这些。"
+    L += ['', '## 这份结果怎么读', '',
+          f"- 归类覆盖：{m['total_items']:,} 条全部有且只有一个类别（100%）。",
+          edge_line,
+          f"- 稀有类别：{len(low)} 个类别少于 {m.get('low_sample_threshold', 10)} 条，保留用于定位，不参与排名。",
+          (f"- 自动校验：{v.get('leaves', 0)} 个类别，抽样回原文比对 {v.get('locator_mismatch', 0)} 条不一致，"
+           f"结构错误 {v.get('errors', 0)} 个。" if v else "- 自动校验：见 `verify.json`。"),
+          '', '完整明细看 `cluster_summary.md`（分布）和 `leaves.tsv`（每个类别的条目数/会话数）。', '']
+    open(os.path.join(out, 'cluster_brief.md'), 'w', encoding='utf-8').write('\n'.join(L))
+
+
 def cmd_report(a):
     t = jload(os.path.join(a.out, 'cluster_tree.json'))
     m, root = t['meta'], t['tree']
@@ -545,6 +594,7 @@ def cmd_report(a):
                         out.append(f"{p3}{'└─' if n == len(l3['children']) - 1 else '├─'} "
                                    f"{pad(l4['name'], 30)} {l4['count']:>5} 条 / {l4['sessions']:>4} 会话")
     open(os.path.join(a.out, 'cluster_tree.txt'), 'w', encoding='utf-8').write('\n'.join(out))
+    write_brief(t, a.out)
     print('report written')
 
 

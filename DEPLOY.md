@@ -80,7 +80,7 @@ tmux new -s cluster          # 长任务必须放 tmux，否则 SSH 断线就没
 ./run_cluster.sh <输入 jsonl 或目录> <run_dir> <out_dir> [全量会话数] [cases 目录]
 ```
 
-`run_cluster.sh` 会把工作区设成 `sync_datasets`（这样 `datasets/` 可读、`code/` 可写，都在沙箱内），然后用 `dsh --profile headless --json` 跑一次，事件流写到 `<out_dir>/dsh-<时间>.jsonl`。
+`run_cluster.sh` 默认走 **script 引擎**：`init` → `classify`（直调网关，`CLUSTER_REASONING` 选 none/low，默认 none）→ `finish`。只有 `CLUSTER_ENGINE=dsh` 时才用 `dsh --profile headless --json`，事件流写到 `<out_dir>/dsh-<时间>.jsonl`。
 
 看进度和结果：
 
@@ -90,9 +90,9 @@ grep '"type":"final"' <out_dir>/dsh-*.jsonl | tail -1          # 最终答复
 grep -o 'leaves=[0-9]* total=[0-9]* locator_mismatch=[0-9]* errors=[0-9]*' <out_dir>/dsh-*.jsonl | tail -1
 ```
 
-交付物是 8 个文件：`cluster_tree.json/txt`、`cluster_summary.md`、`cluster_matrix.png`、`item_index.jsonl`、`syndrome.json/md`、`leaves.tsv`、`MANIFEST.json`。`verify` 必须 `errors=0` 且 `locator_mismatch=0`。
+交付物是 9 个文件：`cluster_tree.json/txt`、`cluster_summary.md`、`cluster_brief.md`、`cluster_matrix.png`、`item_index.jsonl`、`syndrome.json/md`、`leaves.tsv`、`MANIFEST.json`。`verify` 必须 `errors=0` 且 `locator_mismatch=0`。
 
-> 时间预期：fixture 3 条大约 10 分钟（绝大部分是模型与工具往返，不是计算）。真实数据按分片数线性增长，32 并发下会明显快于 8 并发。
+> 时间预期：script 引擎快速模式实测 6,243 条 / 79s（32 并发，约 4,700 条/分），35,000 条约 8 分钟；质量模式约慢 5–6 倍。
 
 ### 4.2 DSH 配置
 

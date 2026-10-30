@@ -11,6 +11,7 @@ shift
 case "$CMD" in
   init)
     SRC=${1:?src}; RUN=${2:?run}; CASES=${3:-}
+    python3 "$HERE/bin/taxonomy_lint.py" >/dev/null || { echo "taxonomy lint failed; run python3 bin/taxonomy_lint.py" >&2; exit 1; }
     python3 "$HERE/bin/cluster.py" ingest --input "$SRC" ${CASES:+--cases "$CASES"} --out "$RUN"
     python3 "$HERE/bin/cluster.py" chunk --work "$RUN" --size 200
     echo

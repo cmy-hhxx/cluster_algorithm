@@ -17,7 +17,7 @@ def sha16(p):
 
 tree = json.load(open(os.path.join(a.out, 'cluster_tree.json'), encoding='utf-8'))
 ver = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'VERSION.json'), encoding='utf-8'))
-files = ['cluster_tree.json', 'cluster_tree.txt', 'cluster_summary.md', 'cluster_matrix.png',
+files = ['cluster_tree.json', 'cluster_tree.txt', 'cluster_summary.md', 'cluster_brief.md', 'cluster_matrix.png',
          'item_index.jsonl', 'syndrome.md', 'syndrome.json', 'leaves.tsv']
 man = {
     'bundle': tree['meta']['title'],

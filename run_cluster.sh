@@ -3,7 +3,8 @@
 # 用法：./run_cluster.sh <输入 jsonl|目录> <run_dir> <out_dir> [全量会话数] [cases 目录]
 #
 # 引擎（环境变量 CLUSTER_ENGINE）：
-#   script  默认。init → classify（直调模型，12 并发）→ finish。全量 4 万条约 30 分钟。
+#   script  默认。init → classify（直调网关，24 并发，默认 none）→ finish。
+#           快速约 4,700 条/分（24–32 并发，3.5 万约 8 分钟）；质量设 CLUSTER_REASONING=low，约 2 小时。
 #   dsh     DSH headless agent 跑 skill，慢一个数量级，只在需要 agent 判断时用。
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -69,6 +70,8 @@ ${CASES:+cases 目录：$CASES}
 fi
 
 cd "$HERE"
+# 质量模式单请求更重，默认降到 12 并发；快速模式默认 24。
+if [ "${CLUSTER_REASONING:-none}" = "low" ]; then CONC=${CLUSTER_CONCURRENCY:-12}; else CONC=${CLUSTER_CONCURRENCY:-24}; fi
 ./run.sh init "$SRC" "$RUN" $CASES
-./run.sh classify "$RUN" --concurrency "${CLUSTER_CONCURRENCY:-12}"
+./run.sh classify "$RUN" --concurrency "$CONC" --effort "${CLUSTER_REASONING:-none}"
 ./run.sh finish "$RUN" "$OUT" "$SESSIONS" "$(src_root)"

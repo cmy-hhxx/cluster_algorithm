@@ -18,24 +18,27 @@ description: 对一批流失用户归因数据做三层聚类（环节/机制/�
 ./run.sh init <attribution.jsonl 或目录> <run_dir> [eval_session_inputs 目录]
 ```
 
-然后对 `<run_dir>/assign/manifest.json` 里每个分片派一个子代理，提示词用 `prompts/01_assign.md`，
-替换 `{{ROOT}}`（仓库绝对路径）、`{{L1}}`、`{{CHUNK}}`、`{{N}}`。
+然后直调网关批量归类（默认 24 并发、200 条/片）：
 
-**并发上限以运行环境为准**：DSH 由 `subagent.maxActiveSubagents` 决定（本仓库服务器配 32，DSH 默认 8）。
-按上限分批，失败的片重试一次；超过上限会整批失败。
+```bash
+./run.sh classify <run_dir> --concurrency 32 --effort none   # 快：~4700 条/分钟（24–32 并发）
+# 对外交付/排名：--effort low（91% vs 88%，慢 5–6 倍）
+```
 
-**headless 下结束回合 = 任务终止**：派完子代理后必须在本回合内轮询 `assign/*.out.jsonl` 的数量，
-直到等于 manifest 的分片数，再跑 `finish`；不要只汇报进度就结束。
+需要可靠的边界标记时加 `--consensus 2`（成本约 ×2，用两次分歧标 `edge`）。
+脚本会自动跳过已完成分片；失败的片重试，仍失败则对半拆片重跑。
 
 ```bash
 ./run.sh finish <run_dir> <out_dir> <全量会话数> <源目录绝对路径>
 ```
 `verify` 必须 `errors=0` 且 `locator_mismatch=0` 才能交付。
 
+> 旧路子（派 DSH 子代理）仍可用，模板在 `prompts/01_assign_agent.md`；默认不再走它。
+
 ## 交付话术（三件事，缺一不可）
 1. 最大单点：会话数最高的 1–3 个叶子；
 2. 最普遍机制：L2 排名及其与 L1 的交叉；
-3. 诚实刻度：edge 比例、定位校验结果（有 α 就给 α）。
+3. 诚实刻度：edge 比例、定位校验结果、用了 fast 还是 quality 模式（有 α 就给 α）。
 
 ## 红线
 - 单元是原子归因条目，一条只归一个叶子；多条命中按 M1→M7 取最早失效点。

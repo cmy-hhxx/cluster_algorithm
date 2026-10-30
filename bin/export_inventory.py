@@ -56,7 +56,7 @@ for l1, meta in inv['l1'].items():
     leaves = sorted([n for n in inv['nodes'] if n['l1'] == l1], key=lambda n: (n['l2'], n['id']))
     if not leaves:
         continue
-    out = [f"# L1={l1} {meta['name']}", '', meta['definition'], '']
+    out = [f"# 环节 {l1}：{meta['name']}", '', meta['definition'], '']
 
     # 0. gate questions
     out += ['## 0. 判定骨架（按顺序问，命中即停）', '']
@@ -65,10 +65,10 @@ for l1, meta in inv['l1'].items():
         if not ms:
             continue
         out.append(f"{int(m[1])}. **{GATE[m]}** → " + ' / '.join(f"`{n['id']}` {n['name']}" for n in ms))
-    out += ['', '> 同一环节内，先定机制再定叶子。跨机制的兄弟不互斥，靠本节顺序裁决。', '']
+    out += ['', '> 同一环节内，先定机制，再选类别。跨机制的类别不互斥，靠本节顺序裁决。', '']
 
     # 1. quick table
-    out += ['## 1. 速查表', '', '| 叶子 | 名称 | 机制 | 条目 | 会话 | 标签 | 最近邻 |', '|---|---|---|---|---|---|---|']
+    out += ['## 1. 类别速查表', '', '| 类别 | 名称 | 机制 | 条目 | 会话 | 标签 | 最相近 |', '|---|---|---|---|---|---|---|']
     for n in leaves:
         seqs = by_leaf.get(n['id'], [])
         cnt = len(seqs)
@@ -78,7 +78,7 @@ for l1, meta in inv['l1'].items():
                    f"{','.join(leaf_tags.get(n['id'], []))} | `{d.get('near','–')}` |")
 
     # 2. decision cards
-    out += ['', '## 2. 判定卡（互斥用）', '']
+    out += ['', '## 2. 类别判定卡（用来区分互斥）', '']
     for n in leaves:
         d = disc.get(n['id'], {})
         seqs = by_leaf.get(n['id'], [])
@@ -90,7 +90,7 @@ for l1, meta in inv['l1'].items():
         out.append(f"- **可观测信号**：{d.get('sig','–')}")
         out.append(f"- **纳入**：{n['include']}")
         out.append(f"- **排除**：{n['exclude']}")
-        out.append(f"- **最近邻**：`{d.get('near','–')}` — 区分点：{d.get('split','–')}")
+        out.append(f"- **最相近的类别**：`{d.get('near','–')}` — 区分点：{d.get('split','–')}")
         out.append(f"- **标签**：{','.join(leaf_tags.get(n['id'], []))} ｜ **组件**：{'、'.join(n['components']) or '全部'}")
         if seqs:
             prof = n['name'] + n['definition']
@@ -111,7 +111,7 @@ for l1, meta in inv['l1'].items():
         if d.get('near') and pair not in seen:
             seen.add(pair)
             pairs.append((n['id'], d['near'], d.get('split', '')))
-    out += ['## 3. 互斥对照表（最近邻对）', '', '| A | B | 一句话区分 |', '|---|---|---|']
+    out += ['## 3. 最容易混淆的类别对', '', '| A | B | 一句话区分 |', '|---|---|---|']
     for a_, b_, s in pairs:
         out.append(f"| `{a_}` {next(x['name'] for x in leaves if x['id']==a_)} | "
                    f"`{b_}` {next((x['name'] for x in leaves if x['id']==b_), '')} | {s} |")

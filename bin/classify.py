@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """批量归类：用一次模型调用处理一个分片，替代 DSH 子代理。
 
-用法：python3 bin/classify.py --work <run_dir> [--batch 200] [--concurrency 12]
+用法：python3 bin/classify.py --work <run_dir> [--concurrency 24]
+                              [--effort none|low] [--consensus N] [--temperature 0]
                               [--retries 3] [--force]
 
 分片来自 `run.sh init` 产出的 <run>/assign/*.jsonl（manifest.json 描述每片）。
@@ -19,10 +20,11 @@ MODEL = os.environ.get("CLUSTER_MODEL", "deepseek-v4.1-flash")
 API_KEY = os.environ.get("EVAL_GATEWAY_API_KEY", "dummy")
 MAX_TOKENS = int(os.environ.get("CLUSTER_MAX_TOKENS", "32768"))
 TIMEOUT = int(os.environ.get("CLUSTER_TIMEOUT", "600"))
-REASONING = os.environ.get("CLUSTER_REASONING", "low")  # low 快 ~2.3x，质量由 A/B 与抽检把关
+REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模式设 low（+2.6pp，慢 5-6x）
 
+TEMPERATURE = None
 _lock = threading.Lock()
-_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0}
+_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0}
 
 
 def log(msg):
@@ -47,11 +49,7 @@ def healthy_gateways():
 
 
 def load_rules(l1):
-    raw = open(os.path.join(ROOT, "prompts", "01_assign.md"), encoding="utf-8").read()
-    # 保留 §1–§5 与 §7（§6 的样例用 P/Q/S/A 前缀，会诱导模型输出非本片 L1 的 path）
-    head = raw.split("## 6.")[0]
-    tail = raw.split("## 7.")[1].split("## 8.")[0] if "## 7." in raw else ""
-    body = head + "\n## 7. 输出契约（含 edge 判定）\n" + tail
+    body = open(os.path.join(ROOT, "prompts", "01_assign.md"), encoding="utf-8").read()
     body = body.replace("{{ROOT}}", ROOT).replace("{{L1}}", l1)
     inv = open(os.path.join(ROOT, "taxonomy", f"INV_{l1}.md"), encoding="utf-8").read()
     valid = set(re.findall(r"^\| `(" + re.escape(l1) + r"\.[A-Z0-9.]+)` \|", inv, re.M))
@@ -65,6 +63,8 @@ def call(gateways, prompt):
     body = {"model": MODEL, "input": prompt, "max_output_tokens": MAX_TOKENS}
     if REASONING and REASONING != "default":
         body["reasoning"] = {"effort": REASONING}
+    if TEMPERATURE is not None:
+        body["temperature"] = TEMPERATURE
     payload = json.dumps(body).encode()
     last = None
     n = next(_rr) % len(gateways)
@@ -102,19 +102,33 @@ def parse_rows(resp):
 def build_prompt(l1, chunk, items, rules, inv):
     body = "\n".join(json.dumps({k: it.get(k, "") for k in ("seq", "component", "label", "definition", "reason")},
                                 ensure_ascii=False) for it in items)
-    return f"""你是归因聚类流水线中的归类代理 C-{chunk}，本片 L1={l1}，共 {len(items)} 条。
+    return f"""你是归类员。本批共 {len(items)} 条，都已按 component 分到同一个环节；环节不用你判断。
 
 {rules}
 
-## 叶子清单（path 必须来自这里）
+## 类别清单（path 必须来自这里）
 {inv}
 
 ## 待判定条目（每行一个 JSON）
 {body}
 
 ## 输出要求
-只输出恰好 {len(items)} 行 JSONL，每行一个对象：{{"seq": <原样带回>, "path": "{l1}.M<k>.<j>", "edge": <true|false>}}。
+只输出恰好 {len(items)} 行 JSONL，每行一个对象：{{"seq": <原样带回>, "path": "{l1}.M<k>.<j>", "uncertain": <true|false>}}。
 不要解释、不要代码块、不要额外字段。每条都必须有输出，seq 必须与输入一一对应。"""
+
+
+def normalize_rows(rows, valid):
+    """Collapse hallucinated 4-segment paths to their valid 3-segment parent."""
+    n = 0
+    for r in rows:
+        p = str(r.get("path", "")).strip().strip("`")
+        if p not in valid and p.count(".") == 3:
+            parent = p.rsplit(".", 1)[0]
+            if parent in valid:
+                p = parent
+                n += 1
+        r["path"] = p
+    return n
 
 
 def valid_rows(rows, items, l1, valid):
@@ -135,6 +149,7 @@ def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth
     for attempt in range(retries):
         try:
             rows = parse_rows(call(gateways, prompt))
+            _stats["normalized"] += normalize_rows(rows, valid)
             if valid_rows(rows, items, l1, valid):
                 return rows
             bad = [str(r.get("path")) for r in rows if str(r.get("path")) not in valid][:3]
@@ -175,22 +190,43 @@ def run_chunk(gateways, work, meta, args):
             return 0
     rules, inv, valid = load_rules(l1)
     t0 = time.time()
-    rows = classify_items(gateways, l1, chunk, items, rules, inv, valid, args.retries)
+    passes = [classify_items(gateways, l1, chunk, items, rules, inv, valid, args.retries)
+              for _ in range(max(1, args.consensus))]
+    if len(passes) == 1:
+        rows = passes[0]
+        out = [{"seq": r["seq"], "path": r["path"],
+                "edge": bool(r.get("uncertain", r.get("edge", False)))} for r in rows]
+    else:
+        votes = {}
+        for rows in passes:
+            for r in rows:
+                votes.setdefault(r["seq"], []).append(r["path"])
+        out = []
+        for seq, paths in votes.items():
+            counts = {}
+            for p in paths:
+                counts[p] = counts.get(p, 0) + 1
+            best = max(counts, key=lambda p: (counts[p], p == paths[0]))
+            out.append({"seq": seq, "path": best, "edge": len(counts) > 1})
     with open(dst, "w", encoding="utf-8") as fh:
-        for r in rows:
-            fh.write(json.dumps({"seq": r["seq"], "path": r["path"], "edge": bool(r.get("edge", False))},
-                                ensure_ascii=False) + "\n")
-    log(f"{chunk}: {len(rows)} rows in {time.time()-t0:.0f}s")
-    return len(rows)
+        for r in out:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    log(f"{chunk}: {len(out)} rows in {time.time()-t0:.0f}s")
+    return len(out)
 
 
 def main():
+    global REASONING, TEMPERATURE
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", required=True)
-    ap.add_argument("--concurrency", type=int, default=12)
+    ap.add_argument("--concurrency", type=int, default=24)
     ap.add_argument("--retries", type=int, default=3)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--consensus", type=int, default=1, help="每片跑几遍投票；>1 时用分歧标 edge，成本×N")
+    ap.add_argument("--effort", default=REASONING, help="none/low/medium/high；none 最快")
+    ap.add_argument("--temperature", type=float, default=None)
     a = ap.parse_args()
+    REASONING, TEMPERATURE = a.effort, a.temperature
 
     work = os.path.abspath(a.work)
     manifest = json.load(open(os.path.join(work, "assign", "manifest.json"), encoding="utf-8"))
@@ -214,7 +250,7 @@ def main():
                 log(f"{m['chunk']}: FAILED {e}")
     dt = time.time() - t0
     print(f"\nchunks={_stats['chunks']}/{len(manifest)} items={_stats['items']} "
-          f"calls={_stats['calls']} failed={_stats['failed']} elapsed={dt:.0f}s "
+          f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']} elapsed={dt:.0f}s "
           f"rate={_stats['items']/max(dt,1)*60:.0f} items/min")
     if failed:
         for c, e in failed:

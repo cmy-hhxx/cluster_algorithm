@@ -1,6 +1,6 @@
 # 使用教程
 
-两条路：**在 DSH 里说一句话**（推荐），或者**自己跑确定性部分、手动派归类代理**。
+两条路：**在 DSH 里说一句话**（推荐），或者**自己跑确定性部分、手动直调网关归类**。
 
 ---
 
@@ -33,16 +33,16 @@
 把 /mnt/fin_bench/sync_datasets/datasets/<批次>/attribution.jsonl 聚一下
 ```
 
-我会在服务器上执行 `run_cluster.sh`（见 §2），跑完把 8 个文件和三个数给你。
+我会在服务器上执行 `run_cluster.sh`（见 §2），跑完把 9 个文件和三个数给你。
 
 背后的动作：
 
 1. `run.sh init` —— 解析 + 按段分片（确定性，秒级）
-2. 对每个分片派一个归类代理（提示词 `prompts/01_assign.md`，**并发上限 32**，DSH `maxActiveSubagents`）
-3. `run.sh finish` —— 聚合 + 校验 + 出报告
+2. `run.sh classify` —— 直调网关批量归类（默认 24 并发、`none` 精度、200 条/片）
+3. `run.sh finish` —— 聚合 + 校验 + 出报告（含一页纸 `cluster_brief.md`）
 4. 报三个数：最大单点、最普遍机制、质量刻度
 
-耗时参考：片数 ÷ 32 向上取整就是批次数，每批受最慢一片约束；3 条 fixture 实测约 5 分钟。
+耗时参考（2026-10-30 实测）：快速模式 32 并发 6,243 条/79s（3.5 万约 8 分钟）；质量模式约慢 5–6 倍。
 
 ---
 
@@ -61,8 +61,8 @@ tmux new -s cluster
 ./run.sh init /path/to/attribution.jsonl ./run /path/to/eval_session_inputs
 #    → run/items.jsonl  run/locators.jsonl  run/assign/*.jsonl  run/assign/manifest.json
 
-# ② 归类（对 manifest 里每个分片派一个代理，提示词 prompts/01_assign.md）
-#    替占位符：{{ROOT}} 仓库路径、{{RUN}} run 目录、{{L1}}、{{CHUNK}}、{{N}}
+# ② 归类（直调网关；快速用 none，对外交付用 low）
+./run.sh classify ./run --concurrency 24 --effort none
 #    产出：run/assign/<chunk>.out.jsonl  每行 {"seq":1,"path":"S1.M2.1","edge":false}
 
 # ③ 聚合 + 校验 + 报告
@@ -85,6 +85,7 @@ leaves=133 total=13002 locator_mismatch=0 errors=0
 |---|---|
 | `cluster_tree.json` | 主产物。每个叶子带 `count / sessions / share / definition / include / exclude / samples` |
 | `cluster_tree.txt` | 开会用的树形打印，带条目数与会话数 |
+| `cluster_brief.md` | 一页纸结论：最该先修的 3 件事、失效层、可信度，**给业务看这一份** |
 | `cluster_summary.md` | 段分布、机制分布、横切标签、各段 Top 模式 |
 | `cluster_matrix.png` | 环节 × 机制热力图，一眼看出哪段压在哪个机制 |
 | `item_index.jsonl` | 全量索引：`seq → path + 原文件/行号/JSON路径`，可 join 任何下游 |
@@ -96,7 +97,7 @@ leaves=133 total=13002 locator_mismatch=0 errors=0
 
 1. 看**会话数**，不看条目数——条目数会被“问题多的会话”放大。
 2. `low_sample: true` 的叶子（条目 <10）不参与排名，只用于定位。
-3. `edge: true` 的条目是边界判定，占 17% 左右，结论要绕开它们再做一次敏感性判断。
+3. `edge: true` 是边界标记，比例取决于是否用 `--consensus 2`（实测 3.7%）；先复核它们，再做排名。
 
 ---
 
@@ -197,11 +198,11 @@ python3 bin/krippendorff.py audit/a/all.jsonl audit/b/all.jsonl
 ```bash
 ./run_cluster.sh <数据> <run> <out> [会话数] [cases]   # 服务器上一条命令跑完（推荐）
 ./run.sh init <数据> <run> [cases]                     # 解析+分片
-#  → 派归类代理（prompts/01_assign.md，32 并发）
+#  → run.sh classify（直调网关，24 并发）
 ./run.sh finish <run> <out> <会话数> <数据目录>         # 聚合+校验+报告
 
 python3 bin/cluster.py recall --node <叶> --out <out> [--full]   # 召回
 python3 bin/krippendorff.py <a.jsonl> <b.jsonl>                  # 信度
 ```
 
-产物 8 个文件，主看 `cluster_tree.json` 与 `cluster_summary.md`。
+产物 9 个文件，业务主看 `cluster_brief.md`，分析主看 `cluster_tree.json` 与 `cluster_summary.md`。
