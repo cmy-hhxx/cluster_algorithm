@@ -49,6 +49,8 @@ def main():
             print(f"  batch {b}: 跳过 {len(missing)} 条未归类条目")
         kept = 0
         for s in sorted(items):
+            if s not in assign:
+                continue
             it = items[s]
             key = tuple(str(it.get(k, "")) for k in key_fields)
             if key in seen:
