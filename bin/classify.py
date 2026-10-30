@@ -19,6 +19,7 @@ MODEL = os.environ.get("CLUSTER_MODEL", "deepseek-v4.1-flash")
 API_KEY = os.environ.get("EVAL_GATEWAY_API_KEY", "dummy")
 MAX_TOKENS = int(os.environ.get("CLUSTER_MAX_TOKENS", "32768"))
 TIMEOUT = int(os.environ.get("CLUSTER_TIMEOUT", "600"))
+REASONING = os.environ.get("CLUSTER_REASONING", "low")  # low 快 ~2.3x，质量由 A/B 与抽检把关
 
 _lock = threading.Lock()
 _stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0}
@@ -56,7 +57,10 @@ def load_rules(l1):
 
 
 def call(gateways, prompt):
-    payload = json.dumps({"model": MODEL, "input": prompt, "max_output_tokens": MAX_TOKENS}).encode()
+    body = {"model": MODEL, "input": prompt, "max_output_tokens": MAX_TOKENS}
+    if REASONING and REASONING != "default":
+        body["reasoning"] = {"effort": REASONING}
+    payload = json.dumps(body).encode()
     last = None
     for base in gateways:
         req = urllib.request.Request(
