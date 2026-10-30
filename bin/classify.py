@@ -9,7 +9,7 @@
 输出写到 <run>/assign/<chunk>.out.jsonl，每行 {"seq":..,"path":"S3.M4.1","edge":false}。
 已存在且 seq 完整的 .out.jsonl 会跳过（--force 强制重跑）。
 """
-import argparse, concurrent.futures, json, os, re, sys, threading, time, urllib.request
+import argparse, concurrent.futures, itertools, json, os, re, sys, threading, time, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GATEWAYS = [u.strip().rstrip("/") for u in os.environ.get(
@@ -58,13 +58,17 @@ def load_rules(l1):
     return body, inv, valid
 
 
+_rr = itertools.count()
+
+
 def call(gateways, prompt):
     body = {"model": MODEL, "input": prompt, "max_output_tokens": MAX_TOKENS}
     if REASONING and REASONING != "default":
         body["reasoning"] = {"effort": REASONING}
     payload = json.dumps(body).encode()
     last = None
-    for base in gateways:
+    n = next(_rr) % len(gateways)
+    for base in gateways[n:] + gateways[:n]:
         req = urllib.request.Request(
             base + "/responses", data=payload,
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"})
