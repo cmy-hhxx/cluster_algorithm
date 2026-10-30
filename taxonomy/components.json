@@ -90,5 +90,17 @@
  "其他工具（client_action）": {
   "tool": "client_action",
   "label": "客户端动作"
+ },
+ "其他工具（understand-image-1）": {
+  "tool": "understand-image-1",
+  "label": "图像理解（通道1）"
+ },
+ "其他工具（understand-image-2）": {
+  "tool": "understand-image-2",
+  "label": "图像理解（通道2）"
+ },
+ "其他工具（understand-image-3）": {
+  "tool": "understand-image-3",
+  "label": "图像理解（通道3）"
  }
 }

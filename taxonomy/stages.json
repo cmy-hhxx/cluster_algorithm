@@ -63,7 +63,10 @@
   "components": [
    "view_skill/read_file",
    "understand_image",
-   "client_action"
+   "client_action",
+   "understand-image-1",
+   "understand-image-2",
+   "understand-image-3"
   ]
  },
  "S9": {
