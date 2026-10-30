@@ -21,6 +21,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--dedup-key", default="session_id,trace_id,json_path")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="批次未分类完时，只合并已有归类的条目（默认报错）")
     ap.add_argument("batches", nargs="+")
     a = ap.parse_args()
 
@@ -41,8 +43,10 @@ def main():
             for r in load_jsonl(f):
                 assign[r["seq"]] = r
         missing = set(items) - set(assign)
+        if missing and not a.allow_partial:
+            sys.exit(f"{b}: {len(missing)} 条没有归类结果（先跑 run.sh classify，或加 --allow-partial）")
         if missing:
-            sys.exit(f"{b}: {len(missing)} 条没有归类结果（先跑 run.sh classify）")
+            print(f"  batch {b}: 跳过 {len(missing)} 条未归类条目")
         kept = 0
         for s in sorted(items):
             it = items[s]
