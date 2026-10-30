@@ -47,7 +47,8 @@ def healthy_gateways():
 
 def load_rules(l1):
     raw = open(os.path.join(ROOT, "prompts", "01_assign.md"), encoding="utf-8").read()
-    body = raw.split("## 8.")[0]           # 去掉需要 bash 的自检段
+    # 只保留 §1–§5（§6 的样例用 P/Q/S/A 前缀，会诱导模型输出非本片 L1 的 path）
+    body = raw.split("## 6.")[0]
     body = body.replace("{{ROOT}}", ROOT).replace("{{L1}}", l1)
     inv = open(os.path.join(ROOT, "taxonomy", f"INV_{l1}.md"), encoding="utf-8").read()
     valid = set(re.findall(r"^\| `(" + re.escape(l1) + r"\.[A-Z0-9.]+)` \|", inv, re.M))
@@ -126,7 +127,9 @@ def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth
             rows = parse_rows(call(gateways, prompt))
             if valid_rows(rows, items, l1, valid):
                 return rows
-            last_err = f"invalid output ({len(rows)}/{len(items)} rows)"
+            bad = [str(r.get("path")) for r in rows if str(r.get("path")) not in valid][:3]
+            last_err = f"invalid output ({len(rows)}/{len(items)} rows, bad paths {bad})"
+            log(f"{chunk}: attempt {attempt+1} {last_err}")
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
         time.sleep(2 + attempt * 3)
