@@ -53,6 +53,9 @@ def main():
             seq += 1
             seen[key] = seq
             it = dict(it); it["seq"] = seq
+            # locator 用绝对路径，合并后不同批次的源文件不在同一根目录下也能 verify
+            if os.path.isabs(it.get("src_path", "")):
+                it["file"] = it["src_path"]
             items_out.append(it)
             loc = dict(locs[s]); loc["seq"] = seq
             locs_out.append(loc)
