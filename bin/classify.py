@@ -48,8 +48,10 @@ def healthy_gateways():
 
 def load_rules(l1):
     raw = open(os.path.join(ROOT, "prompts", "01_assign.md"), encoding="utf-8").read()
-    # 只保留 §1–§5（§6 的样例用 P/Q/S/A 前缀，会诱导模型输出非本片 L1 的 path）
-    body = raw.split("## 6.")[0]
+    # 保留 §1–§5 与 §7（§6 的样例用 P/Q/S/A 前缀，会诱导模型输出非本片 L1 的 path）
+    head = raw.split("## 6.")[0]
+    tail = raw.split("## 7.")[1].split("## 8.")[0] if "## 7." in raw else ""
+    body = head + "\n## 7. 输出契约（含 edge 判定）\n" + tail
     body = body.replace("{{ROOT}}", ROOT).replace("{{L1}}", l1)
     inv = open(os.path.join(ROOT, "taxonomy", f"INV_{l1}.md"), encoding="utf-8").read()
     valid = set(re.findall(r"^\| `(" + re.escape(l1) + r"\.[A-Z0-9.]+)` \|", inv, re.M))
