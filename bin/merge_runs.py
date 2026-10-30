@@ -58,6 +58,8 @@ def main():
                 it["file"] = it["src_path"]
             items_out.append(it)
             loc = dict(locs[s]); loc["seq"] = seq
+            if os.path.isabs(it.get("src_path", "")):
+                loc["file"] = it["src_path"]
             locs_out.append(loc)
             r = assign[s]
             assign_out.append({"seq": seq, "path": r["path"], "edge": bool(r.get("edge", False))})
