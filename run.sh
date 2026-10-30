@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 确定性部分。用法：
-#   ./run.sh init   <attribution.jsonl|dir> <run_dir> [cases_dir]   # 解析 + 分片
-#   ./run.sh finish <run_dir> <out_dir> [sessions_all] [src_dir]   # 聚合 + 校验 + 报告
+#   ./run.sh init     <attribution.jsonl|dir> <run_dir> [cases_dir]   # 解析 + 分片
+#   ./run.sh classify <run_dir> [--concurrency N]                    # 批量归类（直调模型）
+#   ./run.sh finish   <run_dir> <out_dir> [sessions_all] [src_dir]   # 聚合 + 校验 + 报告
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-CMD=${1:?usage: run.sh init|finish ...}
+CMD=${1:?usage: run.sh init|classify|finish ...}
 shift
 case "$CMD" in
   init)
@@ -12,8 +13,12 @@ case "$CMD" in
     python3 "$HERE/bin/cluster.py" ingest --input "$SRC" ${CASES:+--cases "$CASES"} --out "$RUN"
     python3 "$HERE/bin/cluster.py" chunk --work "$RUN" --size 200
     echo
-    echo "下一步：对 $RUN/assign/manifest.json 的每个分片派归类代理（prompts/01_assign.md）"
+    echo "下一步：./run.sh classify $RUN"
     echo "完成后：./run.sh finish $RUN <out_dir> <sessions_all> <src_dir>"
+    ;;
+  classify)
+    RUN=${1:?run}; shift
+    python3 "$HERE/bin/classify.py" --work "$RUN" "$@"
     ;;
   finish)
     RUN=${1:?run}; OUT=${2:?out}; SESSIONS_ALL=${3:-0}; SRC=${4:-$RUN}
