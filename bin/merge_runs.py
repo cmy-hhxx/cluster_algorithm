@@ -20,7 +20,7 @@ def load_jsonl(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--dedup-key", default="session_id,trace_id,problem_id")
+    ap.add_argument("--dedup-key", default="session_id,trace_id,json_path")
     ap.add_argument("batches", nargs="+")
     a = ap.parse_args()
 
@@ -53,13 +53,17 @@ def main():
             seq += 1
             seen[key] = seq
             it = dict(it); it["seq"] = seq
-            # locator 用绝对路径，合并后不同批次的源文件不在同一根目录下也能 verify
-            if os.path.isabs(it.get("src_path", "")):
-                it["file"] = it["src_path"]
+            # locator 统一成绝对路径：相对路径按当前工作目录（仓库根）解析
+            sp = it.get("src_path", "")
+            if sp and not os.path.isabs(sp):
+                sp = os.path.normpath(os.path.join(os.getcwd(), sp))
+                it["src_path"] = sp
+            if sp:
+                it["file"] = sp
             items_out.append(it)
             loc = dict(locs[s]); loc["seq"] = seq
-            if os.path.isabs(it.get("src_path", "")):
-                loc["file"] = it["src_path"]
+            if sp:
+                loc["file"] = sp
             locs_out.append(loc)
             r = assign[s]
             assign_out.append({"seq": seq, "path": r["path"], "edge": bool(r.get("edge", False))})
