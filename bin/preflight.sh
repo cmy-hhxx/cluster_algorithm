@@ -5,6 +5,8 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 DS=${1:-/mnt/fin_bench/sync_datasets/datasets}
+# 先加载环境（.deploy/env.sh 会把 PATH 指到带 Pillow 的 venv，并设 NO_PROXY）
+if [[ -f .deploy/env.sh ]]; then source .deploy/env.sh; fi
 FAIL=0
 ok()   { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAIL=1; }
