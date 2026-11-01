@@ -19,7 +19,7 @@
  "shell_poll": "S4",
  "CustomerServiceFAQ": "S6",
  "watchlist_manager": "S3+S10",
- "client_action": "S8",
+ "client_action": "S8+S10",
  "understand-image-1": "S8",
  "understand-image-2": "S8",
  "understand-image-3": "S8",
