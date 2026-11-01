@@ -1048,5 +1048,29 @@
   "label": "代码解释器（脚本 bt.py）",
   "role": "script",
   "stage": "S4"
+ },
+ "Backtest": {
+  "tool": "Backtest",
+  "label": "回测工具",
+  "role": "tool",
+  "stage": "S3"
+ },
+ "alert": {
+  "tool": "alert",
+  "label": "告警提醒",
+  "role": "tool",
+  "stage": "S3"
+ },
+ "client_action": {
+  "tool": "client_action",
+  "label": "客户端动作",
+  "role": "tool",
+  "stage": "S8"
+ },
+ "create-automation": {
+  "tool": "create-automation",
+  "label": "自动化创建技能",
+  "role": "skill",
+  "stage": "S8"
  }
 }

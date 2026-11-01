@@ -19,11 +19,14 @@
  "shell_poll": "S4",
  "CustomerServiceFAQ": "S6",
  "watchlist_manager": "S3+S10",
- "client_action": "S8+S10",
+ "client_action": "S8",
  "understand-image-1": "S8",
  "understand-image-2": "S8",
  "understand-image-3": "S8",
  "任务规划": "S12",
  "SaveUserProfile": "S7",
- "答案合成": "S9"
+ "答案合成": "S9",
+ "Backtest": "S3",
+ "alert": "S3",
+ "create-automation": "S8"
 }

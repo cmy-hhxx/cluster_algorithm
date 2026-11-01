@@ -1,0 +1,51 @@
+{
+ "_note": "component 的模式登记表。cluster.py 的 canon_component 先查 components.json 的精确匹配，未命中再按本表从上到下第一条命中的规则归类；仍未命中才中断（不猜）。原始字符串始终写进 items.jsonl 的 component_raw，信息不丢。",
+ "_why": "2026-11 起日常导出里出现大量一次性脚本路径（/harness/workdir/*.py 之类）和「X 请求生成」写法，逐条登记不可维护；这些名字不构成新的责任域，按模式归到已有的「脚本执行 / 请求生成 / 图表」段即可。",
+ "rules": [
+  {
+   "id": "vis_html",
+   "match": "vis-html|</arg_value>|<tool_call>",
+   "tool": "display",
+   "label": "展示组件（渲染引用）",
+   "stage": "S11",
+   "note": "含 vis-html 引用标记；部分条目是上游把 tool_call 标记漏进 component 的脏数据，仍按展示组件归"
+  },
+  {
+   "id": "visualizer",
+   "match": "data-visualizer|visualizer|viz",
+   "tool": "display",
+   "label": "展示组件（渲染脚本）",
+   "stage": "S11"
+  },
+  {
+   "id": "skill_finquery",
+   "match": "/opt/skills[^/]*/.*finquery.*\\.py$",
+   "tool": "finquery",
+   "label": "取数服务（技能脚本）",
+   "stage": "S3",
+   "note": "取数技能脚本按责任域算结构化取数，不按执行通道算脚本"
+  },
+  {
+   "id": "skill_other",
+   "match": "/opt/skills[^/]*/.*\\.(py|js)$",
+   "tool": "shell",
+   "label": "代码解释器（技能内脚本）",
+   "stage": "S4"
+  },
+  {
+   "id": "sandbox_script",
+   "match": "^/(harness/)?workdir/.*\\.(py|js)$|^/tmp/.*\\.(py|js)$|^/[A-Za-z0-9_./-]+\\.(py|js)$",
+   "tool": "shell",
+   "label": "代码解释器（沙箱脚本）",
+   "stage": "S4"
+  },
+  {
+   "id": "request_generation",
+   "match": "请求生成$",
+   "tool": "shell",
+   "label": "代码解释器（请求生成）",
+   "stage": "S10",
+   "note": "「X 请求生成」统一算请求构造；X 是工具还是脚本，只影响 label，不影响段"
+  }
+ ]
+}

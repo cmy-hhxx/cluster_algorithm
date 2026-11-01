@@ -14,7 +14,7 @@ Subcommands:
 
 Design rules live in README.md; do not change counting rules here without updating it.
 """
-import argparse, collections, datetime, glob, hashlib, json, os, sys
+import argparse, collections, datetime, glob, hashlib, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOW_SAMPLE = 10
@@ -77,10 +77,34 @@ def component_map():
     return jload(os.path.join(ROOT, 'taxonomy', 'components.json'), {})
 
 
+_PATTERNS = None
+
+
+def component_patterns():
+    """模式登记表：一次性脚本路径 / 「X 请求生成」这类写法按规则归类，避免逐条登记。"""
+    global _PATTERNS
+    if _PATTERNS is None:
+        d = jload(os.path.join(ROOT, 'taxonomy', 'component_patterns.json'), {}) or {}
+        _PATTERNS = [(r['id'], re.compile(r['match']), r) for r in d.get('rules', [])]
+    return _PATTERNS
+
+
+def match_pattern(raw):
+    for rid, rx, rule in component_patterns():
+        if rx.search(raw):
+            return rule
+    return None
+
+
 def canon_component(raw):
-    """raw component -> (tool, label, stage)。v4 起 stage 由 components.json 的 role 决定。"""
+    """raw component -> (tool, label, stage)。先精确匹配，再走模式表，都没命中返回 raw。"""
     m = component_map().get(raw)
-    return (m['tool'], m['label'], m.get('stage', '')) if m else (raw, '', '')
+    if m:
+        return (m['tool'], m['label'], m.get('stage', ''))
+    rule = match_pattern(raw)
+    if rule:
+        return (rule['tool'], rule.get('label', ''), rule.get('stage', ''))
+    return (raw, '', '')
 
 
 def taxonomy(dir_=None):
@@ -178,7 +202,8 @@ def cmd_ingest(a):
     jdump(stats, os.path.join(a.out, 'stats.json'))
     cmap = jload(os.path.join(ROOT, 'taxonomy', 'components.json'), {})
     known = {v['tool'] for v in cmap.values()}
-    unknown = sorted({i['component'] for i in items} - known)
+    unknown = sorted({i['component'] for i in items
+                      if i['component'] not in known and not i.get('stage')})
     if unknown:
         jdump({'unregistered': unknown}, os.path.join(a.out, 'unregistered.json'))
         sys.exit('未登记 component（已写入 unregistered.json）：' + ', '.join(unknown) +
