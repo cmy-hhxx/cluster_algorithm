@@ -139,6 +139,8 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   else
     mode=full
     [[ $INC -eq 1 ]] && echo "  模式：全量（尚无基线，自动建基线）"
+    # 全量必须干净：旧 assign/*.out.jsonl 若 seq 恰好对得上，classify 会误判「已完成」而复用旧判定
+    rm -rf "$WORK/$t/run"
     ./run.sh init "$src" "$WORK/$t/run"
     ./run.sh classify "$WORK/$t/run" --concurrency "$CONC"
     ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
