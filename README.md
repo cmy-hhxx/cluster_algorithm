@@ -32,7 +32,7 @@ L4 细分  —— 仅对达标的大叶子下钻（§5）
 | S6 | 客服知识库 | customer_services / CustomerServiceFAQ | 34 | 31 |
 | S7 | 记忆 | aime_memory_read/write、get_user_context、SaveUserProfile | 34 | 32 |
 | S8 | 能力装载 | view_skill/read_file、understand_image | 10 | 8 |
-| S9 | 终稿生成 | `role=delivery`（答案合成的取值/计算/推断/引用/指令遵循） | 1,384 | 800 |
+| S9 | 答案合成 | `role=delivery`（答案合成的取值/计算/推断/引用/指令遵循） | 1,384 | 800 |
 | S10 | 请求生成 | `role=request_generation` 的非图表类请求 | 826 | 435 |
 | S11 | 图表与可视化 | display / workflow 的 spec 生成与渲染 | 96 | 71 |
 | S12 | 任务编排 | `family=model` 的泛规划（做几步、什么顺序、要不要补前置） | 138 | 120 |

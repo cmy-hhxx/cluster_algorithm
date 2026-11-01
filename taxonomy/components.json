@@ -96,8 +96,8 @@
   "stage": "S8"
  },
  "终稿生成轮": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成",
+  "tool": "答案合成",
+  "label": "答案合成",
   "role": "",
   "stage": "S9"
  },
@@ -582,38 +582,38 @@
   "stage": "S9"
  },
  "答案合成·取值": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成·取值",
+  "tool": "答案合成",
+  "label": "答案合成·取值",
   "role": "delivery",
   "stage": "S9"
  },
  "答案合成·引用": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成·引用",
+  "tool": "答案合成",
+  "label": "答案合成·引用",
   "role": "delivery",
   "stage": "S9"
  },
  "答案合成·指令遵循": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成·指令遵循",
+  "tool": "答案合成",
+  "label": "答案合成·指令遵循",
   "role": "delivery",
   "stage": "S9"
  },
  "答案合成·推断": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成·推断",
+  "tool": "答案合成",
+  "label": "答案合成·推断",
   "role": "delivery",
   "stage": "S9"
  },
  "答案合成·无据内容": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成·无据内容",
+  "tool": "答案合成",
+  "label": "答案合成·无据内容",
   "role": "delivery",
   "stage": "S9"
  },
  "答案合成·计算": {
-  "tool": "终稿生成轮",
-  "label": "终稿生成·计算",
+  "tool": "答案合成",
+  "label": "答案合成·计算",
   "role": "delivery",
   "stage": "S9"
  },

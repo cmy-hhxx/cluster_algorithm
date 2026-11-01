@@ -7,7 +7,7 @@ cd "$ROOT"
 python3 - "$TMP/run" <<'PY'
 import json, glob, sys, os
 run = sys.argv[1]
-m = {'finquery': 'S3.M3.2', 'planner-search': 'S2.M2.4', '终稿生成轮': 'S9.M6.4'}
+m = {'finquery': 'S3.M3.2', 'planner-search': 'S2.M2.4', '答案合成': 'S9.M6.4'}
 for f in glob.glob(os.path.join(run, 'assign', '*.jsonl')):
     if f.endswith('manifest.json'):
         continue

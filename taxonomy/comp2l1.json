@@ -13,7 +13,6 @@
  "get_user_context": "S7+S10",
  "view_skill/read_file": "S8+S10",
  "understand_image": "S8+S10",
- "终稿生成轮": "S9",
  "中间推理处理": "S9",
  "display": "S11",
  "CodeInterpreter": "S4+S10",
@@ -25,5 +24,6 @@
  "understand-image-2": "S8",
  "understand-image-3": "S8",
  "任务规划": "S12",
- "SaveUserProfile": "S7"
+ "SaveUserProfile": "S7",
+ "答案合成": "S9"
 }
