@@ -2,7 +2,7 @@
  "planner-finquery": "S1+S10",
  "planner-search": "S2+S10",
  "stock_ner_parse": "S2+S10",
- "finquery": "S3",
+ "finquery": "S3+S10",
  "shell": "S4+S10",
  "query_user_positions": "S4+S10",
  "web_search": "S5",

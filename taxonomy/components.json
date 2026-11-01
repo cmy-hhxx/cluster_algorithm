@@ -904,5 +904,77 @@
   "label": "shell（fetch_europe_market_data.py 请求生成）",
   "role": "request_generation",
   "stage": "S10"
+ },
+ "finquery 请求生成": {
+  "tool": "finquery",
+  "label": "取数服务（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "display 请求生成": {
+  "tool": "display",
+  "label": "展示组件（请求生成）",
+  "role": "request_generation",
+  "stage": "S11"
+ },
+ "aime-finquery 请求生成": {
+  "tool": "view_skill/read_file",
+  "label": "技能加载（aime-finquery 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "bt.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（bt.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "analyze.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（analyze.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "/opt/skills-wencai-big-fast/finquery-market-data/scripts/calc.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本 calc.py）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-wencai/data-visualizer/routes/vis-custom/workflow.js": {
+  "tool": "display",
+  "label": "展示组件（vis-custom 渲染脚本）",
+  "role": "script",
+  "stage": "S11"
+ },
+ "/harness/workdir/runytd.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 runytd.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/harness/workdir/backtest_pm.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 backtest_pm.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/harness/workdir/screen/fetch.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 screen/fetch.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/parse_fen.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 parse_fen.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/screen.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 screen.py）",
+  "role": "script",
+  "stage": "S4"
  }
 }
