@@ -142,6 +142,28 @@ mv runs/<树>/run_next runs/<树>/run_merged          # 基线前移，下次增
 - 去重键 `(session_id, trace_id, json_path)`：已判过的条目**不会重判**，只判 `run_delta` 里的新增条目；重复记录被丢弃，数量写进 `run_delta/stats.json` 的 `already_known`。
 - 关键在只对 `run_delta` 跑 `chunk` + `classify`，整棵树不参与。`--dry-run` 一律写 `runs/<树>/run_dry`，不会碰基线。
 
+**把已有基线搬到另一台机器（想在服务器上做增量，必须搬）**
+
+`runs/` 在 `.gitignore` 里，服务器上拉代码不会有基线。没有基线就只能全量重跑（等于重开一版，叶子归属会随执行器变化）。
+
+```bash
+# 本机打包（当前 6 棵树约 3.7MB）
+tar czf runs/_baselines-4.1.2.tar.gz -C runs */run_merged
+
+# 传到服务器并解包
+scp runs/_baselines-4.1.2.tar.gz root@<server>:<repo>/runs/
+ssh root@<server> 'cd <repo> && tar xzf runs/_baselines-4.1.2.tar.gz -C runs'
+
+# 关键一步：把基线里的绝对路径改到服务器上，否则增量合并出的树 verify 会找不到源文件
+python3 bin/rebase_paths.py --run runs \
+  --datasets /mnt/fin_bench/sync_datasets/datasets \
+  --repo /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
+
+wc -l runs/*/run_merged/items.jsonl      # 应与本机一致：211/265/332/378/870/1594
+```
+
+`rebase_paths.py` 只改 `src_path`/`file`，不动判定与 seq，可重复执行（路径已对就是 no-op）。
+
 **换机器后的一个坑**：`merge_runs` 会把 `file` / `src_path` 统一写成本机绝对路径，所以 `item_index.jsonl` 里的 `src_file` 在跑批机器上可直接打开、换机器后失效。每次交付都要重跑 `bin/make_src_map.py` 生成 `src_map.json`，它是"相对路径 ↔ 原始文件"的唯一索引。
 
 ### 4.1 跑一次
