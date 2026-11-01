@@ -1006,5 +1006,47 @@
   "label": "代码解释器（viz.py 请求生成）",
   "role": "request_generation",
   "stage": "S10"
+ },
+ "build_xlsx.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（build_xlsx.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "render.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（render.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "list_actions 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（list_actions 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "drawing 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（drawing 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "/tmp/bt3.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 bt3.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/bt4.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 bt4.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/bt.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 bt.py）",
+  "role": "script",
+  "stage": "S4"
  }
 }
