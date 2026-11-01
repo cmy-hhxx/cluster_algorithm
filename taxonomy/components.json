@@ -976,5 +976,11 @@
   "label": "代码解释器（脚本 screen.py）",
   "role": "script",
   "stage": "S4"
+ },
+ "extract_daily.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（extract_daily.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
  }
 }
