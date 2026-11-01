@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# 8 棵树一键跑（问财日常 4 + AIME 日常 2 + AIME 流失 2）。
-#   全量：init → classify → finish → make_src_map → 拷到 <输入目录同级>/cluster/<model>/
+# 6 棵树一键跑（问财日常 4 棵 + AIME 2 棵）。
+#   全量：init → classify → finish → make_src_map → 拷到 <交付目录>
 #   增量：ingest → make_delta（只取未归类）→ chunk → classify → merge → finish → 交付
 #
 # 树与目录（<D> = datasets 根）：
 #   问财日常  <D>/0_wencai/eval_output/0_daily_eval/{a_fast,b_fast,a_expert,b_expert}
-#   AIME日常  <D>/1_aime/eval_output/0_daily_eval/{aime_fast,aime_expert}
-#   AIME流失  <D>/1_aime/eval_output/1_lost_user_eval/{aime_fast,aime_expert}
-#   交付      就在各自 eval 目录下的 cluster/<model>/
+#             交付到 <该 eval 目录>/cluster/<model>/
+#   AIME      <D>/1_aime/eval_output/{0_daily_eval,1_lost_user_eval}/<model>
+#             日常+流失合成一棵树（ingest 只吃单目录，先软链到 runs/_src/<树>/{daily,lost}/）
+#             交付到 <D>/1_aime/eval_output/cluster/<model>/
 #
 # 基线约定：每棵树一个「当前全量状态」目录 runs/<树>/run_merged（跑过增量）或 run（只跑过全量）。
 #   增量时若基线不存在 → 自动退回全量（cron 第一次触发就能把基线建好）。
@@ -18,7 +19,7 @@
 # 例：
 #   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets                        # 8 棵全量
 #   bin/run_trees.sh <D> --only wencai_a_fast,aime_fast_daily                    # 只跑几棵
-#   bin/run_trees.sh <D> --incremental --only aime_fast_lost,aime_expert_lost     # 流失增量
+#   bin/run_trees.sh <D> --incremental --only aime_fast,aime_expert               # AIME 增量（含新流失）
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
@@ -54,19 +55,27 @@ exec 9>"$WORK/.lock"
 if ! flock -n 9; then echo "另一批聚类正在运行，本次跳过（锁 $WORK/.lock）"; exit 0; fi
 
 W="$DS/0_wencai/eval_output/0_daily_eval"
-AD="$DS/1_aime/eval_output/0_daily_eval"
-AL="$DS/1_aime/eval_output/1_lost_user_eval"
+A="$DS/1_aime/eval_output"
 
-TREES=(
-  "wencai_a_fast|$W/a_fast"
-  "wencai_b_fast|$W/b_fast"
-  "wencai_a_expert|$W/a_expert"
-  "wencai_b_expert|$W/b_expert"
-  "aime_fast_daily|$AD/aime_fast"
-  "aime_expert_daily|$AD/aime_expert"
-  "aime_fast_lost|$AL/aime_fast"
-  "aime_expert_lost|$AL/aime_expert"
-)
+# AIME：日常 + 流失 两处合成一棵树（ingest 只吃单目录 → 软链到 runs/_src/<树>/{daily,lost}/）
+stage_aime() {  # $1=树名 $2=model 目录名；输出 staging 目录
+  local d="$WORK/_src/$1" f
+  rm -rf "$d"; mkdir -p "$d/daily" "$d/lost"
+  for f in "$A/0_daily_eval/$2"/*attribution*.jsonl; do [[ -e "$f" ]] && ln -sf "$f" "$d/daily/"; done
+  for f in "$A/1_lost_user_eval/$2"/*attribution*.jsonl; do [[ -e "$f" ]] && ln -sf "$f" "$d/lost/"; done
+  echo "$d"
+}
+
+# 树名|输入目录|交付目录|src_root（verify 用的相对根）
+#   问财 ingest 记 file=a_fast/x.jsonl → src_root=0_daily_eval
+#   AIME ingest 记 file=daily/x.jsonl    → src_root=staging 目录
+TREES=()
+TREES+=("wencai_a_fast|$W/a_fast|$W/cluster/a_fast|$W")
+TREES+=("wencai_b_fast|$W/b_fast|$W/cluster/b_fast|$W")
+TREES+=("wencai_a_expert|$W/a_expert|$W/cluster/a_expert|$W")
+TREES+=("wencai_b_expert|$W/b_expert|$W/cluster/b_expert|$W")
+TREES+=("aime_fast|$(stage_aime aime_fast aime_fast)|$A/cluster/aime_fast|$WORK/_src/aime_fast")
+TREES+=("aime_expert|$(stage_aime aime_expert aime_expert)|$A/cluster/aime_expert|$WORK/_src/aime_expert")
 
 selected() { [[ -z "$ONLY" ]] && return 0; [[ ",$ONLY," == *",$1,"* ]]; }
 baseline() {
@@ -88,12 +97,10 @@ with open(p, "a", encoding="utf-8") as fh:
 PY
 }
 
-run_tree() {  # $1=树名 $2=输入目录
-  local t=$1 src=$2
-  local srcroot out deliver base final t0 n delta v mode
-  srcroot=$(dirname "$src")
+run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
+  local t=$1 src=$2 deliver=$3 srcroot=$4
+  local out base final t0 n delta v mode
   out="$WORK/$t/out"
-  deliver="$srcroot/cluster/$(basename "$src")"
 
   echo
   echo "=== $t ==="
@@ -153,10 +160,10 @@ run_tree() {  # $1=树名 $2=输入目录
 }
 
 for row in "${TREES[@]}"; do
-  t=${row%%|*}; src=${row#*|}
+  t=${row%%|*}; rest=${row#*|}; src=${rest%%|*}; rest=${rest#*|}; deliver=${rest%%|*}; srcroot=${rest#*|}
   selected "$t" || continue
   if [[ ! -d "$src" ]]; then echo "跳过 $t：输入目录不存在 $src"; continue; fi
-  run_tree "$t" "$src"
+  run_tree "$t" "$src" "$deliver" "$srcroot"
 done
 
 echo
