@@ -9,7 +9,7 @@ import argparse, collections, json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OLD_REF = re.compile(r"\b([PQA])\.(M[1-7])\.(\d+)\b")
-PATH_REF = re.compile(r"\b(S[1-9])\.(M[1-7])\.(\d+)\b")
+PATH_REF = re.compile(r"\b(S\d+)\.(M[1-7])\.(\d+)\b")
 VAGUE = ("其他", "杂项", "未知", " miscellaneous", "其它")
 
 
@@ -48,7 +48,7 @@ def main():
         err("dup_id", f"重复叶子 id: {x}")
     for n in nodes:
         nid = n["id"]
-        if not re.fullmatch(r"S[1-9]\.M[1-7]\.\d+", nid):
+        if not re.fullmatch(r"S\d+\.M[1-7]\.\d+", nid):
             err("bad_id", f"{nid}: id 不符合 S<段>.M<机制>.<序号>")
             continue
         l1, l2 = nid.split(".")[:2]
@@ -63,8 +63,12 @@ def main():
         for c in n.get("components", []):
             if c not in comp2l1:
                 err("unregistered_component", f"{nid}: component {c!r} 未登记")
-            elif comp2l1[c] != l1:
-                err("component_stage", f"{nid}: component {c!r} 属于 {comp2l1[c]}，叶子在 {l1}")
+            else:
+                # v4：一个工具可以跨多个阶段（如 planner-finquery 既出计划也出请求），
+                # comp2l1 用 "S1+S2" 表示，叶子只要落在其中之一即合法。
+                sts = set(str(comp2l1[c]).split("+"))
+                if l1 not in sts:
+                    err("component_stage", f"{nid}: component {c!r} 属于 {'+'.join(sorted(sts))}，叶子在 {l1}")
         for k in ("name", "definition", "include", "exclude"):
             if not str(n.get(k, "")).strip():
                 err("empty_field", f"{nid}: {k} 为空")

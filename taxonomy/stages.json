@@ -77,5 +77,36 @@
    "中间推理处理",
    "display"
   ]
+ },
+ "S10": {
+  "name": "请求生成",
+  "definition": "把计划落成可调用的请求、代码或渲染 spec：定参数、字段、结构、契约。失效多为参数缺失/类型错、字段取近似、工具选错、生成物不可执行。",
+  "components": [
+   "CodeInterpreter",
+   "aime_memory_read",
+   "aime_memory_write",
+   "client_action",
+   "customer_services",
+   "display",
+   "planner-finquery",
+   "planner-search",
+   "shell",
+   "stock_ner_parse",
+   "view_skill/read_file"
+  ]
+ },
+ "S11": {
+  "name": "图表与可视化",
+  "definition": "把数据落成图：选图型、写渲染 spec、执行渲染、挂进正文。失效多为 spec 不合契约、序列缺项、数值/换算错、图没渲染或引用挂不上。",
+  "components": [
+   "display"
+  ]
+ },
+ "S12": {
+  "name": "任务编排",
+  "definition": "决定做几步、按什么顺序、要不要先补前置（技能流程、基期、核对）。不是取数查询设计，也不是检索词构造。",
+  "components": [
+   "任务规划"
+  ]
  }
 }

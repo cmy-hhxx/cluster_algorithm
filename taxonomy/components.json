@@ -1,106 +1,908 @@
 {
  "planner-finquery 取数规划子模型": {
   "tool": "planner-finquery",
-  "label": "取数规划子模型"
+  "label": "取数规划子模型",
+  "role": "",
+  "stage": "S1"
  },
  "planner-search 检索规划子模型": {
   "tool": "planner-search",
-  "label": "检索规划子模型"
+  "label": "检索规划子模型",
+  "role": "",
+  "stage": "S2"
  },
  "stock_ner_parse 实体识别": {
   "tool": "stock_ner_parse",
-  "label": "实体识别"
+  "label": "实体识别",
+  "role": "",
+  "stage": "S2"
  },
  "finquery 取数服务": {
   "tool": "finquery",
-  "label": "取数服务"
+  "label": "取数服务",
+  "role": "",
+  "stage": "S3"
  },
  "shell 代码解释器": {
   "tool": "shell",
-  "label": "代码解释器"
+  "label": "代码解释器",
+  "role": "",
+  "stage": "S4"
  },
  "web_search 网页检索": {
   "tool": "web_search",
-  "label": "网页检索"
+  "label": "网页检索",
+  "role": "",
+  "stage": "S5"
  },
  "web_fetch 网页抓取": {
   "tool": "web_fetch",
-  "label": "网页抓取"
+  "label": "网页抓取",
+  "role": "",
+  "stage": "S5"
  },
  "其他工具（customer_services）": {
   "tool": "customer_services",
-  "label": "客服知识库"
+  "label": "客服知识库",
+  "role": "",
+  "stage": "S6"
  },
  "其他工具（aime_memory_read）": {
   "tool": "aime_memory_read",
-  "label": "记忆读取"
+  "label": "记忆读取",
+  "role": "",
+  "stage": "S7"
  },
  "其他工具（aime_memory_write）": {
   "tool": "aime_memory_write",
-  "label": "记忆写入"
+  "label": "记忆写入",
+  "role": "",
+  "stage": "S7"
  },
  "其他工具（get_user_context）": {
   "tool": "get_user_context",
-  "label": "用户上下文"
+  "label": "用户上下文",
+  "role": "",
+  "stage": "S7"
  },
  "其他工具（understand-image-0）": {
   "tool": "understand_image",
-  "label": "图像理解"
+  "label": "图像理解",
+  "role": "",
+  "stage": "S8"
  },
  "其他工具（understand_image）": {
   "tool": "understand_image",
-  "label": "图像理解"
+  "label": "图像理解",
+  "role": "",
+  "stage": "S8"
  },
  "其他工具（query_user_positions）": {
   "tool": "query_user_positions",
-  "label": "持仓查询"
+  "label": "持仓查询",
+  "role": "",
+  "stage": "S4"
  },
  "其他工具（display）": {
   "tool": "display",
-  "label": "展示组件"
+  "label": "展示组件",
+  "role": "",
+  "stage": "S11"
  },
  "view_skill / read_file 技能加载": {
   "tool": "view_skill/read_file",
-  "label": "技能加载"
+  "label": "技能加载",
+  "role": "",
+  "stage": "S8"
  },
  "终稿生成轮": {
   "tool": "终稿生成轮",
-  "label": "终稿生成"
+  "label": "终稿生成",
+  "role": "",
+  "stage": "S9"
  },
  "中间推理处理": {
   "tool": "中间推理处理",
-  "label": "中间推理"
+  "label": "中间推理",
+  "role": "",
+  "stage": "S9"
  },
  "其他工具（CodeInterpreter）": {
   "tool": "CodeInterpreter",
-  "label": "代码解释器（客户端）"
+  "label": "代码解释器（客户端）",
+  "role": "",
+  "stage": "S4"
  },
  "其他工具（shell_poll）": {
   "tool": "shell_poll",
-  "label": "后台任务轮询"
+  "label": "后台任务轮询",
+  "role": "",
+  "stage": "S4"
  },
  "其他工具（CustomerServiceFAQ）": {
   "tool": "CustomerServiceFAQ",
-  "label": "客服 FAQ 检索"
+  "label": "客服 FAQ 检索",
+  "role": "",
+  "stage": "S6"
  },
  "其他工具（watchlist_manager）": {
   "tool": "watchlist_manager",
-  "label": "自选股管理"
+  "label": "自选股管理",
+  "role": "",
+  "stage": "S3"
  },
  "其他工具（client_action）": {
   "tool": "client_action",
-  "label": "客户端动作"
+  "label": "客户端动作",
+  "role": "",
+  "stage": "S8"
  },
  "其他工具（understand-image-1）": {
   "tool": "understand-image-1",
-  "label": "图像理解（通道1）"
+  "label": "图像理解（通道1）",
+  "role": "",
+  "stage": "S8"
  },
  "其他工具（understand-image-2）": {
   "tool": "understand-image-2",
-  "label": "图像理解（通道2）"
+  "label": "图像理解（通道2）",
+  "role": "",
+  "stage": "S8"
  },
  "其他工具（understand-image-3）": {
   "tool": "understand-image-3",
-  "label": "图像理解（通道3）"
+  "label": "图像理解（通道3）",
+  "role": "",
+  "stage": "S8"
+ },
+ "/opt/skills-aime/aime-finquery/scripts/crypto_client.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-aime/aime-finquery/scripts/fetch_china_a_market_data.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-aime/aime-finquery/scripts/finquery.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-aime/aime-finquery/scripts/fmp_market_common.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-aime/cloud-automation/scripts/symbol_resolve.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 symbol_resolve.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/opt/skills-aime/data-visualizer/routes/viz-component/workflow.js": {
+  "tool": "display",
+  "label": "展示组件（渲染请求生成）",
+  "role": "script",
+  "stage": "S11"
+ },
+ "/opt/skills-aime/data-visualizer/routes/viz-custom/workflow.js": {
+  "tool": "display",
+  "label": "展示组件（渲染请求生成）",
+  "role": "script",
+  "stage": "S11"
+ },
+ "/opt/skills-wencai-big-fast/finquery-market-data/scripts/finquery.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-wencai/finquery-market-data/scripts/finquery.py": {
+  "tool": "finquery",
+  "label": "取数服务（技能脚本）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/tmp/build_48.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 build_48.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc2.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 calc2.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc3.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 calc3.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc5.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 calc5.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc7.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 calc7.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc_aapl_gate.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 calc_aapl_gate.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc_div_growth.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 calc_div_growth.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/crypto_momentum.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 crypto_momentum.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/hood_flow_calc.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 hood_flow_calc.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/iova_calc.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 iova_calc.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/nkla_more.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 nkla_more.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/nkla_xbrl.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 nkla_xbrl.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/tech.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 tech.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/hkjc_odds_fetcher.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 hkjc_odds_fetcher.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/nzx/agg.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 agg.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/nzx/ift.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 ift.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/soun_dcf.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 soun_dcf.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "<vis-html ref=\"html-00ded4fc-3b1c-4c16-ab03-beb16a53aee0\" /></arg_value> 请求生成": {
+  "tool": "display",
+  "label": "展示组件（渲染请求生成）",
+  "role": "request_generation",
+  "stage": "S11"
+ },
+ "AccessingFullText": {
+  "tool": "web_fetch",
+  "label": "全文抓取",
+  "role": "tool",
+  "stage": "S5"
+ },
+ "CodeInterpreter": {
+  "tool": "CodeInterpreter",
+  "label": "代码解释器（客户端）",
+  "role": "tool",
+  "stage": "S4"
+ },
+ "CodeInterpreter 请求生成": {
+  "tool": "CodeInterpreter",
+  "label": "代码解释器（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "CustomerServiceFAQ": {
+  "tool": "CustomerServiceFAQ",
+  "label": "客服 FAQ 检索",
+  "role": "tool",
+  "stage": "S6"
+ },
+ "FinQuery": {
+  "tool": "finquery",
+  "label": "取数服务",
+  "role": "tool",
+  "stage": "S3"
+ },
+ "FinQuery 请求生成": {
+  "tool": "planner-finquery",
+  "label": "取数规划子模型（FinQuery）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "Search": {
+  "tool": "web_search",
+  "label": "网页检索",
+  "role": "tool",
+  "stage": "S5"
+ },
+ "Search 请求生成": {
+  "tool": "planner-search",
+  "label": "检索规划子模型（Search）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "aime_memory_read": {
+  "tool": "aime_memory_read",
+  "label": "记忆读取",
+  "role": "tool",
+  "stage": "S7"
+ },
+ "aime_memory_read 请求生成": {
+  "tool": "aime_memory_read",
+  "label": "记忆读取（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "aime_memory_write 请求生成": {
+  "tool": "aime_memory_write",
+  "label": "记忆写入（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "client_action 请求生成": {
+  "tool": "client_action",
+  "label": "客户端动作（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "cloud_automation.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（cloud_automation.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "crypto_client.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（crypto_client.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "customer_services": {
+  "tool": "customer_services",
+  "label": "客服知识库",
+  "role": "tool",
+  "stage": "S6"
+ },
+ "customer_services 请求生成": {
+  "tool": "customer_services",
+  "label": "客服知识库（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fetch_china_a_market_data.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（fetch_china_a_market_data.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fetch_india_market_data.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（fetch_india_market_data.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fetch_other_market_data.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（fetch_other_market_data.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "finquery": {
+  "tool": "finquery",
+  "label": "取数服务",
+  "role": "tool",
+  "stage": "S3"
+ },
+ "finquery-market-data 请求生成": {
+  "tool": "planner-finquery",
+  "label": "取数规划子模型（finquery-market-data）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "finquery.py 请求生成": {
+  "tool": "planner-finquery",
+  "label": "取数规划子模型（finquery.py）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "get_user_context": {
+  "tool": "get_user_context",
+  "label": "用户上下文",
+  "role": "tool",
+  "stage": "S7"
+ },
+ "hkjc_odds_fetcher.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（hkjc_odds_fetcher.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "iova_calc.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（iova_calc.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "manage_cloud_automation.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（manage_cloud_automation.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "planner-finquery": {
+  "tool": "planner-finquery",
+  "label": "取数规划子模型",
+  "role": "planning",
+  "stage": "S1"
+ },
+ "planner-search": {
+  "tool": "planner-search",
+  "label": "检索规划子模型",
+  "role": "planning",
+  "stage": "S2"
+ },
+ "portfolio_sep22.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（portfolio_sep22.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "query_user_positions": {
+  "tool": "query_user_positions",
+  "label": "持仓查询",
+  "role": "tool",
+  "stage": "S4"
+ },
+ "score.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（score.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "shell": {
+  "tool": "shell",
+  "label": "代码解释器",
+  "role": "tool",
+  "stage": "S4"
+ },
+ "shell 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "stock_ner_parse": {
+  "tool": "stock_ner_parse",
+  "label": "实体识别",
+  "role": "tool",
+  "stage": "S2"
+ },
+ "stock_ner_parse 请求生成": {
+  "tool": "stock_ner_parse",
+  "label": "实体识别（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "submit_cloud_automation.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（submit_cloud_automation.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "validate_declaration.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（validate_declaration.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "view_skill 请求生成": {
+  "tool": "view_skill/read_file",
+  "label": "技能加载（请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "web_fetch": {
+  "tool": "web_fetch",
+  "label": "网页抓取",
+  "role": "tool",
+  "stage": "S5"
+ },
+ "web_fetch 请求生成": {
+  "tool": "planner-search",
+  "label": "检索规划子模型（web_fetch）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "web_search": {
+  "tool": "web_search",
+  "label": "网页检索",
+  "role": "tool",
+  "stage": "S5"
+ },
+ "web_search 请求生成": {
+  "tool": "planner-search",
+  "label": "检索规划子模型（web_search）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "workflow.js 请求生成": {
+  "tool": "display",
+  "label": "展示组件（渲染请求生成）",
+  "role": "request_generation",
+  "stage": "S11"
+ },
+ "推理": {
+  "tool": "中间推理处理",
+  "label": "中间推理",
+  "role": "planning",
+  "stage": "S9"
+ },
+ "答案合成·取值": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成·取值",
+  "role": "delivery",
+  "stage": "S9"
+ },
+ "答案合成·引用": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成·引用",
+  "role": "delivery",
+  "stage": "S9"
+ },
+ "答案合成·指令遵循": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成·指令遵循",
+  "role": "delivery",
+  "stage": "S9"
+ },
+ "答案合成·推断": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成·推断",
+  "role": "delivery",
+  "stage": "S9"
+ },
+ "答案合成·无据内容": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成·无据内容",
+  "role": "delivery",
+  "stage": "S9"
+ },
+ "答案合成·计算": {
+  "tool": "终稿生成轮",
+  "label": "终稿生成·计算",
+  "role": "delivery",
+  "stage": "S9"
+ },
+ "规划": {
+  "tool": "任务规划",
+  "label": "任务编排模型",
+  "role": "planning",
+  "stage": "S12"
+ },
+ "/harness/workdir/run3y.py": {
+  "tool": "shell",
+  "label": "shell（/harness/workdir/run3y.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/opt/skills-aime/aime-finquery/scripts/fetch_other_market_data.py": {
+  "tool": "finquery",
+  "label": "finquery（/opt/skills-aime/aime-finquery/scripts/f）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-aime/data-visualizer/routes/viz-standard-chart/workflow.js": {
+  "tool": "display",
+  "label": "display（/opt/skills-aime/data-visualizer/routes/）",
+  "role": "script",
+  "stage": "S11"
+ },
+ "/opt/skills-wencai/data-visualizer/routes/viz-component/workflow.js": {
+  "tool": "display",
+  "label": "display（/opt/skills-wencai/data-visualizer/route）",
+  "role": "script",
+  "stage": "S11"
+ },
+ "/opt/skills-wencai/data-visualizer/routes/viz-standard-chart/workflow.js": {
+  "tool": "display",
+  "label": "display（/opt/skills-wencai/data-visualizer/route）",
+  "role": "script",
+  "stage": "S11"
+ },
+ "/tmp/bmy-tech.py": {
+  "tool": "shell",
+  "label": "shell（/tmp/bmy-tech.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/calc_etf_independence.py": {
+  "tool": "shell",
+  "label": "shell（/tmp/calc_etf_independence.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/automation/fetch_us_universe.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/automation/fetch_us_universe.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/automation/merge_batches.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/automation/merge_batches.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/dd_traj.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/dd_traj.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/drawdown_sim.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/drawdown_sim.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/filt.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/filt.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/final_projection.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/final_projection.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/xau_bt/backtest2.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/xau_bt/backtest2.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/xau_bt/grid.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/xau_bt/grid.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "aime-finquery": {
+  "tool": "view_skill/read_file",
+  "label": "view_skill/read_file（aime-finquery）",
+  "role": "skill",
+  "stage": "S8"
+ },
+ "calc.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（calc.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "cmp.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（cmp.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fast_fetch.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（fast_fetch.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fetch_hk_market_data.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（fetch_hk_market_data.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fetch_japan_market_data.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（fetch_japan_market_data.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "get_user_context 请求生成": {
+  "tool": "get_user_context",
+  "label": "get_user_context（get_user_context 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "grid2.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（grid2.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "query_user_positions 请求生成": {
+  "tool": "query_user_positions",
+  "label": "query_user_positions（query_user_positions 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "understand-image-0": {
+  "tool": "understand_image",
+  "label": "understand_image（understand-image-0）",
+  "role": "planning",
+  "stage": "S8"
+ },
+ "understand-image-1": {
+  "tool": "understand_image",
+  "label": "understand_image（understand-image-1）",
+  "role": "planning",
+  "stage": "S8"
+ },
+ "understand_image": {
+  "tool": "understand_image",
+  "label": "understand_image（understand_image）",
+  "role": "tool",
+  "stage": "S8"
+ },
+ "understand_image 请求生成": {
+  "tool": "understand_image",
+  "label": "understand_image（understand_image 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "watchlist_manager": {
+  "tool": "watchlist_manager",
+  "label": "watchlist_manager（watchlist_manager）",
+  "role": "tool",
+  "stage": "S3"
+ },
+ "watchlist_manager 请求生成": {
+  "tool": "watchlist_manager",
+  "label": "watchlist_manager（watchlist_manager 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "/harness/workdir/score.py": {
+  "tool": "shell",
+  "label": "shell（/harness/workdir/score.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/harness/workdir/screen/detect.py": {
+  "tool": "shell",
+  "label": "shell（/harness/workdir/screen/detect.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/opt/finquery-market-data/scripts/finquery.py": {
+  "tool": "finquery",
+  "label": "finquery（/opt/finquery-market-data/scripts/finquery.p）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/opt/skills-aime/aime-finquery/scripts/fetch_europe_market_data.py": {
+  "tool": "finquery",
+  "label": "finquery（/opt/skills-aime/aime-finquery/scripts/fetch）",
+  "role": "script",
+  "stage": "S3"
+ },
+ "/tmp/read_data.py": {
+  "tool": "shell",
+  "label": "shell（/tmp/read_data.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/tmp/read_data2.py": {
+  "tool": "shell",
+  "label": "shell（/tmp/read_data2.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/cs/ivcalc.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/cs/ivcalc.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/extract.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/extract.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/pdf/build_pdf.js": {
+  "tool": "shell",
+  "label": "shell（/workdir/pdf/build_pdf.js）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/sim2040.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/sim2040.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/work_flex.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/work_flex.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/ytm_calc.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/ytm_calc.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/ytm_final.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/ytm_final.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/workdir/ytm_net.py": {
+  "tool": "shell",
+  "label": "shell（/workdir/ytm_net.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "SaveUserProfile": {
+  "tool": "SaveUserProfile",
+  "label": "SaveUserProfile",
+  "role": "tool",
+  "stage": "S7"
+ },
+ "build_pdf.js 请求生成": {
+  "tool": "shell",
+  "label": "shell（build_pdf.js 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
+ },
+ "fetch_europe_market_data.py 请求生成": {
+  "tool": "shell",
+  "label": "shell（fetch_europe_market_data.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
  }
 }

@@ -39,6 +39,18 @@
   "S9": {
    "name": "终稿生成",
    "definition": "把已有材料组织成最终答复与中间产物。含终稿生成轮、中间推理处理、display。失效多为编造、口径错、答非所问。"
+  },
+  "S10": {
+   "name": "请求生成",
+   "definition": "把计划落成可调用的请求、代码或渲染 spec：定参数、字段、结构、契约。失效多为参数缺失/类型错、字段取近似、工具选错、生成物不可执行。"
+  },
+  "S11": {
+   "name": "图表与可视化",
+   "definition": "把数据落成图：选图型、写渲染 spec、执行渲染、挂进正文。失效多为 spec 不合契约、序列缺项、数值/换算错、图没渲染或引用挂不上。"
+  },
+  "S12": {
+   "name": "任务编排",
+   "definition": "决定做几步、按什么顺序、要不要先补前置（技能流程、基期、核对）。不是取数查询设计，也不是检索词构造。"
   }
  },
  "l2": {
@@ -1516,20 +1528,6 @@
    "plain": "标的对了，但指标、时段或场景不是用户问的那一个。"
   },
   {
-   "id": "S9.M3.1",
-   "l1": "S9",
-   "l2": "M3",
-   "name": "图表引用解析失败",
-   "definition": "图表/图片产物已生成但引用解析失败（unknown/路径失效），正文无法正确嵌入。",
-   "include": "仅适用中间推理与 display 产物。",
-   "exclude": "未生成却称已渲染 → S9.M7.2。",
-   "components": [
-    "中间推理处理",
-    "终稿生成轮"
-   ],
-   "plain": "图已生成，但引用解析不出来，正文挂不上。"
-  },
-  {
    "id": "S9.M4.1",
    "l1": "S9",
    "l2": "M4",
@@ -1725,9 +1723,8 @@
    "name": "图没渲染只留占位",
    "definition": "图表未生成或 html_len=0，却以“已生成/见下图”占位交付，正文无实际产物。",
    "include": "含空白图、悬空引用。",
-   "exclude": "产物存在但解析失败 → S9.M3.1。",
+   "exclude": "产物存在但解析失败 → S11.M7.1。",
    "components": [
-    "display",
     "中间推理处理",
     "终稿生成轮"
    ],
@@ -1825,6 +1822,734 @@
    "components": [
     "planner-finquery"
    ]
+  },
+  {
+   "id": "S10.M1.1",
+   "l1": "S10",
+   "l2": "M1",
+   "name": "请求为空",
+   "definition": "生成的调用参数为空或必填项全空，请求被网关或工具直接拦下，没有真正执行。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "arguments 为 {}、query 为空串、只给工具名不给参数。",
+   "exclude": "参数有值但类型或字段名不合契约 → `S10.M2.8`；被校验拒绝 → `S10.M3.2`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "空的请求发出去，直接被拦。"
+  },
+  {
+   "id": "S10.M1.2",
+   "l1": "S10",
+   "l2": "M1",
+   "name": "未生成请求",
+   "definition": "计划里点名了某个动作，请求生成阶段没有产出对应的调用，这一条静默消失。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "计划三条查询只生成两条调用且无说明；某工具本轮从未被请求。",
+   "exclude": "整批计划都没下发（属计划层）→ `S1.M1.3`；生成了但内容空 → `S10.M1.1`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "该发的请求没写出来。"
+  },
+  {
+   "id": "S10.M2.1",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求照抄原句",
+   "definition": "把用户整句问话当作查询文本下发，没有拆成字段、条件与期间。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "query 等于用户原问，没有指标名、没有日期、没有标的代码。",
+   "exclude": "拆了字段但字段选错 → `S10.M2.4`；条件过宽 → `S10.M2.5`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "把问句原样当查询发出去。"
+  },
+  {
+   "id": "S10.M2.2",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求标的写错",
+   "definition": "请求里的标的代码、名称或市场域写错：代码拼错、市场写反、名称与代码不匹配。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "请求带 NVDA.N 而不是 NVDA、港股代码写成 A 股格式、名称对但代码指向另一只。",
+   "exclude": "计划层就认错标的 → `S1.M2.2`；标的对但取回别的 → `S3.M2.1`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "请求里的代码不是用户说的那只。"
+  },
+  {
+   "id": "S10.M2.3",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求期间写错",
+   "definition": "请求里的日期、报告期或区间端点写错，与计划要的期间不一致。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "「近一年」起始日算错、报告期取成最新一期、区间两端写成同一天。",
+   "exclude": "计划层就锚错 → `S1.M2.4`；期间对但取回旧值 → `S3.M4.7`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "请求的日期不是要的那个。"
+  },
+  {
+   "id": "S10.M2.4",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求字段取近似",
+   "definition": "请求要 A 指标，实际下发的字段是含 A 的近似或派生指标，口径已经变了。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "要「归母净利」请求成「净利润」、要 TTM 请求成最新单季、要前复权请求成不复权。",
+   "exclude": "字段对但返回缺该字段 → `S3.M4.1`；取回后口径理解错 → `S9.M5.4`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "要 A 却按 B 去取。"
+  },
+  {
+   "id": "S10.M2.5",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求过滤条件写错",
+   "definition": "请求的筛选条件方向错、范围过窄或过宽，或几个条件互相抵消。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "「高股息」写成低于阈值、三项 high 叠加导致零行、时间条件与标的条件冲突。",
+   "exclude": "完全没写条件（属计划层）→ `S1.M2.7`；条件对但执行零行 → `S3.M3.3`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "条件写反，或者叠到没人满足。"
+  },
+  {
+   "id": "S10.M2.6",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求排序分页写错",
+   "definition": "请求里的排序字段、方向、TopN 或分页参数写错。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "要「从低到高」写成降序、要前二十却取全量、分页参数指向第二页。",
+   "exclude": "排序对但取回条数少 → `S3.M3.8`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "排序或条数参数写歪。"
+  },
+  {
+   "id": "S10.M2.7",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "工具选错",
+   "definition": "请求指向的工具不在可用清单里，或选了一个做不到这件事的工具。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "把技能名当函数名调用、调用清单外工具、用检索工具做结构化筛选。",
+   "exclude": "工具对但参数错 → `S10.M2.8`；计划层就选错 → `S1.M2.1`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "调了一个不存在或不合适的工具。"
+  },
+  {
+   "id": "S10.M2.8",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求结构不合契约",
+   "definition": "请求的形式不合工具契约：参数类型错、字段名是契约外的、多个 JSON 拼接、必填项缺失。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "整数参数传字符串、用了契约没有的顶层字段、两个 query 对象拼成一个 arguments 串。",
+   "exclude": "结构对但内容指错对象 → `S10.M2.2`；被校验器拒绝 → `S10.M3.2`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "请求形状不对，工具不认。"
+  },
+  {
+   "id": "S10.M2.9",
+   "l1": "S10",
+   "l2": "M2",
+   "name": "请求重复",
+   "definition": "同一请求在一轮里被重复下发，或把已成功的请求原样重发。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "连续两次相同 query；报错后不改参数直接重试同一条。",
+   "exclude": "计划层重复 → `S1.M2.11`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "同一条请求发了两遍。"
+  },
+  {
+   "id": "S10.M3.1",
+   "l1": "S10",
+   "l2": "M3",
+   "name": "生成物不可执行",
+   "definition": "生成的脚本或调用一跑就炸：语法错误、引用不存在的列/键、括号不配对。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "SyntaxError、KeyError、NameError、未闭合字符串，脚本非零退出。",
+   "exclude": "能跑但算错 → `S10.M5.1`；执行前被校验拦下 → `S10.M3.2`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "写出来的代码根本跑不起来。"
+  },
+  {
+   "id": "S10.M3.2",
+   "l1": "S10",
+   "l2": "M3",
+   "name": "请求被校验拒绝",
+   "definition": "请求或渲染 spec 在执行前被契约校验拒绝：字段不被支持、必填缺项、鉴权不通过。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "spec 校验报字段越界、工具返回参数不支持、鉴权失败无回执。",
+   "exclude": "请求内容指错对象 → `S10.M2.2`；工具已执行但报错 → `S3.M3.2`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "还没执行就被校验挡回来。"
+  },
+  {
+   "id": "S10.M3.3",
+   "l1": "S10",
+   "l2": "M3",
+   "name": "生成物被截断",
+   "definition": "生成的参数、代码或 spec 被截断，只交付了一部分。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "参数列表写到一半、脚本最后一段缺失、spec 数组不闭合。",
+   "exclude": "计划层被截断 → `S1.M3.1`；执行输出被截断 → `S3.M3.8`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "生成到一半就断了。"
+  },
+  {
+   "id": "S10.M5.1",
+   "l1": "S10",
+   "l2": "M5",
+   "name": "生成代码计算逻辑错",
+   "definition": "生成物本身能跑，但里面的换算、聚合或标签逻辑写错。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "万手→手换算系数取错、聚合窗口把当日算进去、标签与数值错位。",
+   "exclude": "生成物跑不起来 → `S10.M3.1`；取回后再算错 → `S9.M5.1`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "代码能跑，算式是错的。"
+  },
+  {
+   "id": "S10.M6.1",
+   "l1": "S10",
+   "l2": "M6",
+   "name": "生成物写死结论",
+   "definition": "把结论、数值或判断硬编码进生成的脚本或 spec，冒充计算结果。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "脚本里直接写死目标值再打印「结果」；spec 里写死一段没有数据来源的文案。",
+   "exclude": "有数据但算错 → `S10.M5.1`；终稿阶段编造 → `S9.M6.4`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "把答案写死在代码里，跑一遍假装算出来。"
+  },
+  {
+   "id": "S10.M7.1",
+   "l1": "S10",
+   "l2": "M7",
+   "name": "生成物缺项",
+   "definition": "生成的请求或 spec 明确少了必需的部分：缺一个指标、缺一段序列、缺图例。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "spec 有数据序列但无 axis、脚本只写取数不写渲染、请求只带部分指标。",
+   "exclude": "生成物整体为空 → `S10.M1.1`；计划层就漏维度 → `S1.M2.6`。",
+   "components": [
+    "CodeInterpreter",
+    "aime_memory_read",
+    "aime_memory_write",
+    "client_action",
+    "customer_services",
+    "get_user_context",
+    "planner-finquery",
+    "planner-search",
+    "query_user_positions",
+    "shell",
+    "stock_ner_parse",
+    "understand_image",
+    "view_skill/read_file",
+    "watchlist_manager"
+   ],
+   "plain": "生成的东西缺一块，跑起来也是残的。"
+  },
+  {
+   "id": "S11.M1.1",
+   "l1": "S11",
+   "l2": "M1",
+   "name": "未产出图表",
+   "definition": "要求出图却没有任何 spec 或渲染调用，本轮零图表产物。（本叶仅收S11段产生的缺陷）",
+   "include": "tasks/answer 里只有表格文字，没有任何 display 或 workflow 请求；用户要的图不存在。",
+   "exclude": "生成了 spec 但被校验拦下 → `S11.M3.1`；spec 生成了但没渲染 → `S11.M7.2`。",
+   "components": [
+    "display"
+   ],
+   "plain": "该出的图压根没出。"
+  },
+  {
+   "id": "S11.M2.1",
+   "l1": "S11",
+   "l2": "M2",
+   "name": "图表类型选错",
+   "definition": "选了表达不了该数据的图型：该用 K 线画成柱状、该用走势画成表格、多标的硬塞进单序列。（本叶仅收S11段产生的缺陷）",
+   "include": "时间序列画成饼图、需要展示区间却只给一个点、多标的比较只画一条线。",
+   "exclude": "图型对但字段/单位错 → `S11.M2.2`。",
+   "components": [
+    "display"
+   ],
+   "plain": "图型本身就不对。"
+  },
+  {
+   "id": "S11.M2.2",
+   "l1": "S11",
+   "l2": "M2",
+   "name": "图表字段选错",
+   "definition": "图型对，但画错了指标或时间区间：坐标轴标的不是请求的字段、起止日期与请求不一致。（本叶仅收S11段产生的缺陷）",
+   "include": "把「成交量」画成「成交额」、把请求的区间画成另一段、多标的只画了其中一个。",
+   "exclude": "图型选错 → `S11.M2.1`；单位没换算 → `S11.M5.1`。",
+   "components": [
+    "display"
+   ],
+   "plain": "画的是别的指标或别的区间。"
+  },
+  {
+   "id": "S11.M3.1",
+   "l1": "S11",
+   "l2": "M3",
+   "name": "渲染 spec 不合契约",
+   "definition": "渲染 spec 违反组件契约：出现契约外的顶层字段、通道缺必需属性、参数类型错（如 maLine 传标量）。（本叶仅收S11段产生的缺陷）",
+   "include": "spec 校验报「未知字段」、y 通道没有 axis、均线参数不是正整数数组。",
+   "exclude": "spec 合契约但渲染报错 → `S11.M3.2`；被拒后完全没有产物 → `S11.M1.1`。",
+   "components": [
+    "display"
+   ],
+   "plain": "spec 形状不对，组件不认。"
+  },
+  {
+   "id": "S11.M3.2",
+   "l1": "S11",
+   "l2": "M3",
+   "name": "渲染执行报错",
+   "definition": "spec 通过校验，但渲染阶段组件报错或超时，没有产出可用图表。（本叶仅收S11段产生的缺陷）",
+   "include": "workflow 抛异常、组件 500、渲染超时且无降级。",
+   "exclude": "spec 本身不合契约 → `S11.M3.1`；渲染成功但产物空白 → `S11.M7.2`。",
+   "components": [
+    "display"
+   ],
+   "plain": "执行渲染时报错。"
+  },
+  {
+   "id": "S11.M4.1",
+   "l1": "S11",
+   "l2": "M4",
+   "name": "图表数据序列缺项",
+   "definition": "图出来了，但缺必需元素：少一条 series、没有坐标轴标签、图例与数据对不上、区间只剩半段。（本叶仅收S11段产生的缺陷）",
+   "include": "双指标图只画了一条线、y 轴没有任何刻度、图例写着三个标的但只有两条线。",
+   "exclude": "整图不存在 → `S11.M1.1`；数值错 → `S11.M5.1`。",
+   "components": [
+    "display"
+   ],
+   "plain": "图在，但缺胳膊少腿。"
+  },
+  {
+   "id": "S11.M5.1",
+   "l1": "S11",
+   "l2": "M5",
+   "name": "图表换算系数错",
+   "definition": "图上的数值换算错一个量级或一个口径：万手→手系数取错、亿元没换算到元、复权和未复权混用。（本叶仅收S11段产生的缺陷）",
+   "include": "万手→手用 ×1000、标签写「亿元」刻度却是万元、同一张图两条序列用了不同复权口径。",
+   "exclude": "字段选错 → `S11.M2.2`；与正文数值不一致 → `S11.M5.2`。",
+   "components": [
+    "display"
+   ],
+   "plain": "图画出来了，换算错了一个量级。"
+  },
+  {
+   "id": "S11.M5.2",
+   "l1": "S11",
+   "l2": "M5",
+   "name": "图表正文数值不一致",
+   "definition": "同一答复里图表与正文/表格给出不同数值或不同区间，且没有说明以哪个为准。（本叶仅收S11段产生的缺陷）",
+   "include": "正文写涨 3.2%，图上标注 2.8%；表格 10 只、图里 12 根柱。",
+   "exclude": "单个图表内部算错 → `S11.M5.1`。",
+   "components": [
+    "display"
+   ],
+   "plain": "图文对不上。"
+  },
+  {
+   "id": "S11.M6.1",
+   "l1": "S11",
+   "l2": "M6",
+   "name": "图表写死无来源数值",
+   "definition": "把估算、占位或编造的数值写进图表数据，且没有来源或说明，视觉上却像真实数据。（本叶仅收S11段产生的缺陷）",
+   "include": "数据序列里出现无出处的估算值、注释写「约」但图上当精确值呈现。",
+   "exclude": "有来源但算错 → `S11.M5.1`。",
+   "components": [
+    "display"
+   ],
+   "plain": "图上的数是编的。"
+  },
+  {
+   "id": "S11.M7.1",
+   "l1": "S11",
+   "l2": "M7",
+   "name": "图表引用解析失败",
+   "definition": "图已渲染成产物，但正文引用（vis-html / 图号）解析不出来，读者看不到图或挂错位置。（本叶仅收S11段产生的缺陷）",
+   "include": "引用标签指向不存在的产物、图挂在无关段落、正文说「见下图」而引用失效。",
+   "exclude": "图根本没渲染 → `S11.M7.2`。",
+   "components": [
+    "display"
+   ],
+   "plain": "图有，但正文挂不上。"
+  },
+  {
+   "id": "S11.M7.2",
+   "l1": "S11",
+   "l2": "M7",
+   "name": "图未渲染只留占位",
+   "definition": "渲染失败或 html_len=0，却仍以「已生成/见下图」交付，正文没有任何实际产物。（本叶仅收S11段产生的缺陷）",
+   "include": "答复里只有占位符或空 div、说明写了图但产物为空。",
+   "exclude": "引用解析失败但产物存在 → `S11.M7.1`。",
+   "components": [
+    "display"
+   ],
+   "plain": "说给了图，其实什么都没有。"
+  },
+  {
+   "id": "S12.M1.1",
+   "l1": "S12",
+   "l2": "M1",
+   "name": "空编排",
+   "definition": "需要多步才能完成的任务，编排环节没有产出任何子任务，本轮零动作下发。（本叶仅收S12段产生的缺陷）",
+   "include": "计划为空数组、只回一句「我来处理」而没有子任务；下游只能用旧上下文作答。",
+   "exclude": "有子任务但没下发 → `S12.M1.2`；子任务漏了关键步骤 → `S12.M2.2`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "该拆的活一步都没拆。"
+  },
+  {
+   "id": "S12.M1.2",
+   "l1": "S12",
+   "l2": "M1",
+   "name": "编排未下发",
+   "definition": "已经排出子任务，但没有一条被执行，计划停在纸面。（本叶仅收S12段产生的缺陷）",
+   "include": "计划里 N 个子任务、实际调用 0 条；或只做了计划外的动作。",
+   "exclude": "子任务执行报错 → 落到对应执行段的叶子；计划本身为空 → `S12.M1.1`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "拆完了没人干。"
+  },
+  {
+   "id": "S12.M1.3",
+   "l1": "S12",
+   "l2": "M1",
+   "name": "追问后未重排",
+   "definition": "用户补充或纠正后，编排没有基于新信息重排，仍沿用上一轮的计划。（本叶仅收S12段产生的缺陷）",
+   "include": "多轮会话里用户补齐条件后，本轮子任务与上一轮逐字相同。",
+   "exclude": "重排了但漏步骤 → `S12.M2.2`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "用户补了条件，计划原地不动。"
+  },
+  {
+   "id": "S12.M2.1",
+   "l1": "S12",
+   "l2": "M2",
+   "name": "任务意图判错",
+   "definition": "把任务类型判错：该走操作指引的当成数据分析、该多步的当成一次性问答、该追问的当成可执行任务。（本叶仅收S12段产生的缺陷）",
+   "include": "问「怎么设置」却被拆成取数任务；问预测却排了取数与计算。",
+   "exclude": "意图对但步骤漏 → `S12.M2.2`；完全没排动作 → `S12.M1.1`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "把任务性质判错了。"
+  },
+  {
+   "id": "S12.M2.2",
+   "l1": "S12",
+   "l2": "M2",
+   "name": "漏必要步骤",
+   "definition": "编排缺少完成任务必需的步骤：漏取基期、漏核对口径、漏装载技能、漏补一问的后续动作。（本叶仅收S12段产生的缺陷）",
+   "include": "算同比没排上年同期；要求按技能流程核对却没排装载技能；多步任务只排第一步。",
+   "exclude": "步骤排了但执行失败 → 对应执行段；完全没排 → `S12.M1.1`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "少排了一步，后面全空。"
+  },
+  {
+   "id": "S12.M2.3",
+   "l1": "S12",
+   "l2": "M2",
+   "name": "步骤依赖顺序错",
+   "definition": "子任务之间的先后与依赖排错：先算后取、在数据就绪前渲染、并行做了本该串行的事。（本叶仅收S12段产生的缺陷）",
+   "include": "没有基期数据就排同比计算并直接出图；依赖前一步结果却同时发起。",
+   "exclude": "步骤齐全但执行失败 → 落到对应执行段的叶子。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "顺序反了，后面全废。"
+  },
+  {
+   "id": "S12.M2.4",
+   "l1": "S12",
+   "l2": "M2",
+   "name": "子问题拆解错",
+   "definition": "把一个问题拆错：拆成互不相干的两块、该合的不合、多标的只拆一个、复合条件只取其一。（本叶仅收S12段产生的缺陷）",
+   "include": "「A 和 B 的对比」只排了 A；「营收与净利」合并成一个任务丢维度。",
+   "exclude": "拆对了但漏某一步 → `S12.M2.2`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "拆歪了。"
+  },
+  {
+   "id": "S12.M2.5",
+   "l1": "S12",
+   "l2": "M2",
+   "name": "编排范围过泛",
+   "definition": "子任务没有任何范围约束，等于把全市场全时段都拉一遍。（本叶仅收S12段产生的缺陷）",
+   "include": "「高股息龙头」只排「取全部 A 股股息率」，无行业/市值/时间限制。",
+   "exclude": "范围写了但过窄导致零行 → `S10.M2.5`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "没设边界，等于全量。"
+  },
+  {
+   "id": "S12.M2.6",
+   "l1": "S12",
+   "l2": "M2",
+   "name": "编排重复",
+   "definition": "同一子任务被重复编排，或把已完成的步骤再排一遍。（本叶仅收S12段产生的缺陷）",
+   "include": "一轮里对同一字段连排三次相同查询；原句与结构化字段各排一条。",
+   "exclude": "编排里就重复下发同样的请求 → `S10.M2.9`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "同一件事排了两遍。"
+  },
+  {
+   "id": "S12.M3.1",
+   "l1": "S12",
+   "l2": "M3",
+   "name": "编排输出不可用",
+   "definition": "编排输出被截断、结构损坏或解析失败，无法据此执行。（本叶仅收S12段产生的缺陷）",
+   "include": "计划 JSON 不闭合、最后一条子任务写到一半、解析报错只剩一句自然语言。",
+   "exclude": "计划为空但结构完整 → `S12.M1.1`。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "编排这一步没交出可用的东西。"
+  },
+  {
+   "id": "S12.M6.1",
+   "l1": "S12",
+   "l2": "M6",
+   "name": "未执行即下结论",
+   "definition": "编排层面就放弃执行，直接凭上下文或常识给出结论性判断。（本叶仅收S12段产生的缺陷）",
+   "include": "计划里写「数据不可得，直接回答」并给出具体数值或结论。",
+   "exclude": "执行了但没查到后编造 → `S9` 的编造类叶子。",
+   "components": [
+    "任务规划"
+   ],
+   "plain": "没干活就敢下结论。"
   }
  ]
 }

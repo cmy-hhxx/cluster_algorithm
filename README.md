@@ -20,26 +20,33 @@ L3 模式  —— 可派工的动作级失效模式（互斥、穷尽）
 L4 细分  —— 仅对达标的大叶子下钻（§5）
 ```
 
-**9 段划分**（v2.3 起，无联合命名）：
+**12 段划分**（v4.1 起；v4.0 之前是 9 段）：
 
-| 段 | 名称 | 覆盖 component | 条目 | 会话 |
+| 段 | 名称 | 判定依据 | 条目 | 会话 |
 |---|---|---|---|---|
-| S1 | 取数规划 | planner-finquery | 2,588 | 1,134 |
-| S2 | 检索规划 | planner-search、stock_ner_parse | 659 | 482 |
-| S3 | 结构化取数 | finquery | 3,963 | 1,152 |
-| S4 | 本地计算 | shell、query_user_positions | 200 | 105 |
-| S5 | 网页检索 | web_search、web_fetch | 2,105 | 989 |
-| S6 | 客服知识库 | customer_services | 244 | 148 |
-| S7 | 记忆 | aime_memory_read、aime_memory_write、get_user_context | 40 | 35 |
-| S8 | 能力装载 | view_skill/read_file、understand_image | 21 | 18 |
-| S9 | 终稿生成 | 终稿、中间推理、display | 3,182 | 1,310 |
+| S1 | 取数规划 | `role=planning` 且属取数规划子模型 | 209 | 153 |
+| S2 | 检索规划 | `role=planning` 且属检索规划/实体识别 | 45 | 41 |
+| S3 | 结构化取数 | `role=tool` 的 finquery 与取数技能脚本 | 580 | 406 |
+| S4 | 本地计算 | `role=script` 的沙箱脚本与持仓查询 | 99 | 76 |
+| S5 | 网页检索 | `role=tool` 的 web_search / web_fetch | 195 | 170 |
+| S6 | 客服知识库 | customer_services / CustomerServiceFAQ | 34 | 31 |
+| S7 | 记忆 | aime_memory_read/write、get_user_context、SaveUserProfile | 34 | 32 |
+| S8 | 能力装载 | view_skill/read_file、understand_image | 10 | 8 |
+| S9 | 终稿生成 | `role=delivery`（答案合成的取值/计算/推断/引用/指令遵循） | 1,384 | 800 |
+| S10 | 请求生成 | `role=request_generation` 的非图表类请求 | 826 | 435 |
+| S11 | 图表与可视化 | display / workflow 的 spec 生成与渲染 | 96 | 71 |
+| S12 | 任务编排 | `family=model` 的泛规划（做几步、什么顺序、要不要补前置） | 138 | 120 |
 
-拆分依据是**责任边界 + 故障域**：取数规划与检索规划归属两个团队；结构化取数与本地计算是两种故障域（SQL/服务 vs 沙箱/脚本）；客服知识库（外部知识）、记忆（内部上下文）、能力装载（技能与图像）是三套资源。
+> 条目/会话是 2026-11-01 批次（6 棵树共 3,650 条 / 1,060 会话）的实测，只作量级参考；口径以 `taxonomy/stages.json` 与 `components.json` 的 `role`/`stage` 字段为准。
+
+**v4 为什么扩到 12 段**：2026-11 起归因输出自带 `component_role`（planning / request_generation / tool / script / delivery），第一轴从此可以按「职责阶段」切，而不只是按「哪个工具」切。9 段把 826 条「请求生成」摊在 7 个段里，谁都看不出总量；S10 单独成段后，它是第二大段（22.6%），且在 AIME Expert 里 60% 的会话都踩到。
+
+拆分依据仍是**责任边界 + 故障域**：取数规划与检索规划归属两个团队；结构化取数与本地计算是两种故障域（SQL/服务 vs 沙箱/脚本）；客服知识库（外部知识）、记忆（内部上下文）、能力装载（技能与图像）是三套资源；请求生成（把计划落成调用）与工具执行（真正调用并返回）是两种失效；图表与可视化、任务编排各自有独立的修法。
 
 **两条互斥保证**：
 
-1. `component → 段` 是精确映射，一条问题只可能落一个段；
-2. 同一现象若两段都有，叶子按段一分为二并**各自命名**，不允许同名，也不允许用「A 或 B」命名一个叶子（v2.3 已把 27 个联合命名的叶子全部拆开或改名）。
+1. `component + role → 段` 是精确映射（`components.json` 里每个 raw 写法都带 `stage`），一条问题只可能落一个段；
+2. 同一现象若两段都有，叶子按段一分为二并**各自命名**，不允许同名，也不允许用「A 或 B」命名一个叶子（v2.3 已把 27 个联合命名的叶子全部拆开或改名，v4.1 又清掉 5 个新增的联合名）。
 
 **为什么第一轴是 component 而不是“用户现象”**：component 给出责任边界，能直接派工；缺点是同一现象（如“搜索”）会被拆到多个环节。这个缺点用**横切标签**（§6）补偿——而不是把主树改成现象轴，那会让“谁来修”重新变成猜谜。
 
@@ -167,10 +174,11 @@ cluster_algorithm/
 │   ├── make_manifest.py   生成交付清单与校验和
 │   └── krippendorff.py    双盲重标一致性（nominal α）
 ├── taxonomy/
-│   ├── inventory.json     124 个叶子 + 7 环节 + 7 机制的冻结版
-│   ├── stages.json        7 段定义与 component → 段映射
-│   ├── INV_<L1>.md        每个环节的归类决策表
-│   ├── comp2l1.json       component → L1（显式映射，不从叶子反推）
+│   ├── inventory.json     171 个叶子 + 12 环节 + 7 机制的冻结版
+│   ├── stages.json        12 段定义
+│   ├── INV_<L1>.md        每个环节的归类决策表（S1–S12）
+│   ├── comp2l1.json       component → L1（跨段工具写成 "S4+S10"）
+│   ├── components.json    raw component → {tool, label, role, stage}（stage 决定分片）
 │   ├── tags.json          横切标签词表
 │   ├── leaf_tags.json     叶子 → 标签
 │   └── l4_nodes.json      L4 节点（为空 = 当前停在 L3）
@@ -186,7 +194,16 @@ cluster_algorithm/
 
 > 用 cluster_algorithm 聚类：`/path/to/attribution.jsonl`，输出到 `/path/out`
 
-我会做：`run.sh init`（含分类法自检）→ `run.sh classify`（直调网关，默认 24 并发、200 条/片）→ `run.sh finish` → 报三个数（最大单点 / 最普遍机制 / 质量刻度）→ 交付 9 个文件。
+我会做：`run.sh init`（含分类法自检）→ 归类 → `run.sh finish` → 报三个数（最大单点 / 最普遍机制 / 诚实刻度）→ 交付 12 个文件。
+
+归类这一步有两种执行方式，口径完全一致（详见 [DEPLOY.md](DEPLOY.md) §4.0）：
+
+| 跑在哪 | 归类怎么执行 | 速度 |
+|---|---|---|
+| **服务器（正式）** | `run.sh classify` → `bin/classify.py` 直调网关 | 24–32 并发，约 4,700 条/分 |
+| 本地（2026-11 这几轮） | DSH 子代理逐片判，按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` | 8–12 并发，2,640 条约 25 分钟 |
+
+增量不会全量重跑：新条目先 `ingest → chunk → classify` 到 `run_delta`，再 `merge_runs` 并入既有 run（去重键 `session_id+trace_id+json_path`），最后 `finish`。
 
 不需要你决定任何口径；口径就是这个仓库。速度/精度二选一按下表：
 

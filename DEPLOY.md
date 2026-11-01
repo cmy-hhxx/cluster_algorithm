@@ -1,12 +1,19 @@
 # 部署与运行手册
 
-这套东西只有一条链路：
+这套东西有**两种跑法**，分类法、提示词、交付物完全一致，只有「归类那一步由谁执行」不同：
 
 ```
-本地改代码 → git push 内网仓库 → 服务器 ./deploy.sh 拉取 → 服务器上用 DSH headless 跑聚类
+① 服务器（正式口径）
+   本地改代码 → git push 内网仓库 → 服务器 ./deploy.sh 拉取
+   → run_cluster.sh：init → classify（bin/classify.py 直调网关，24–32 并发）→ finish
+
+② 本地（2026-11-01 这几轮的实际做法，见 §4.0）
+   run.sh init → 归类改由 DSH 子代理直判（本机连不上 interactive-*:5001 网关）→ run.sh finish
 ```
 
-本地只开发，服务器只拉取、只运行。**不要在服务器上改代码**（`deploy.sh` 会因工作区有改动直接停下）。
+服务器只拉取、只运行，**不要在服务器上改代码**（`deploy.sh` 会因工作区有改动直接停下）。
+本地能跑只是为了出数与联调，口径必须与服务器一致：同一份 `taxonomy/`、同一份 `prompts/`。
+**切回服务器时第一件事是核对分类法版本**（`python3 bin/taxonomy_lint.py` 必须 `errors=0`），原因见 §4.0。
 
 ---
 
@@ -72,6 +79,62 @@ updated to <sha>
 
 ## 4. 在服务器上跑聚类
 
+### 4.0 现状：先在本地跑通了，正式要上服务器
+
+**这批为什么在本地跑**
+
+- 本机连不上归类网关：`interactive-djahh4fczrhq:5001` 解析不到（NXDOMAIN），经 `127.0.0.1:7897` 代理也是 502，`bin/classify.py` 不可用；
+- 本机没有 `.deploy/env.sh`，`run_cluster.sh` 在 `source` 那一步就失败；
+- 于是本地改成：`run.sh init` → DSH 子代理按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` 逐片归类（并发 8–12）→ `run.sh finish`。
+
+**本地实测（2026-11-01，v4.1 12 段口径）**
+
+| 批次 | 条目 | 分片 | 耗时（每批 12 片并行） |
+|---|---|---|---|
+| 6 棵树全量 | 2,640 | 75 | ≈20 min（7 批） |
+| 6 棵树增量 | 1,136 | 54 | ≈10 min（5 批） |
+
+服务器 `classify.py` 同样的量约 1 分钟（实测 4,700 条/分）。**差的只是速度，不是口径**——分类法、提示词、交付物、计数口径完全一致。
+
+**上服务器前逐项确认**
+
+| 项 | 怎么查 | 通过标准 |
+|---|---|---|
+| 分类法版本 | `python3 bin/taxonomy_lint.py` | `errors=0`，且 `VERSION.json` 是 4.1.1（12 段 / 171 叶） |
+| 网关可达 | `curl -s -o /dev/null -w '%{http_code}\n' $CLUSTER_GATEWAYS/models` | 200 |
+| `.deploy/env.sh` | `ls .deploy/env.sh` | 存在且能 `source`（本地缺的就是这个） |
+| API key | `echo $EVAL_GATEWAY_API_KEY` | 内网网关默认 `dummy` 可用 |
+| 中文字体 | `fc-list :lang=zh` 或设 `CLUSTER_CHART_FONT` | chart 用 PIL 画，缺字体图上是方框 |
+| 并发 | `CLUSTER_CONCURRENCY` | 24–32，别超 32 |
+
+**在服务器上跑同一批**
+
+```bash
+cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
+tmux new -s cluster
+python3 bin/taxonomy_lint.py           # 必须 errors=0 再往下
+./run_cluster.sh /mnt/fin_bench/sync_datasets/datasets/0_wencai/eval_output/0_daily_eval/a_fast \
+                 runs/wencai_a_fast/run runs/wencai_a_fast/out 0
+```
+
+AIME 的树是「日常 + 流失」两个目录拼成的，`ingest` 只吃单个目录：先在 `runs/_src/<tree>/{daily,lost}/` 建软链再传目录（本地就是这么做的），或把两份文件合到一个临时目录。
+
+**增量（新数据进来时，不要全量重跑）**
+
+```bash
+python3 bin/cluster.py ingest --input <新数据目录> --out runs/<tree>/run_delta
+python3 bin/cluster.py chunk  --work runs/<tree>/run_delta --size 60
+./run.sh classify runs/<tree>/run_delta --concurrency 24
+python3 bin/merge_runs.py --out runs/<tree>/run_merged runs/<tree>/run runs/<tree>/run_delta
+./run.sh finish runs/<tree>/run_merged <out_dir> 0 <src_root>
+python3 bin/make_src_map.py --run runs/<tree>/run_merged --out <out_dir> --version 4.1.1
+```
+
+- 去重键 `(session_id, trace_id, json_path)`：已判过的条目**不会重判**，只判 `run_delta` 里的新增条目；重复记录被丢弃，数量写进 `run_merged/stats.json` 的 `deduped`。
+- 关键在只对 `run_delta` 跑 `chunk` + `classify`，整棵树不参与。
+
+**换机器后的一个坑**：`merge_runs` 会把 `file` / `src_path` 统一写成本机绝对路径，所以 `item_index.jsonl` 里的 `src_file` 在跑批机器上可直接打开、换机器后失效。每次交付都要重跑 `bin/make_src_map.py` 生成 `src_map.json`，它是"相对路径 ↔ 原始文件"的唯一索引。
+
 ### 4.1 跑一次
 
 ```bash
@@ -90,7 +153,7 @@ grep '"type":"final"' <out_dir>/dsh-*.jsonl | tail -1          # 最终答复
 grep -o 'leaves=[0-9]* total=[0-9]* locator_mismatch=[0-9]* errors=[0-9]*' <out_dir>/dsh-*.jsonl | tail -1
 ```
 
-交付物是 9 个文件：`cluster_tree.json/txt`、`cluster_summary.md`、`cluster_brief.md`、`cluster_matrix.png`、`item_index.jsonl`、`syndrome.json/md`、`leaves.tsv`、`MANIFEST.json`。`verify` 必须 `errors=0` 且 `locator_mismatch=0`。
+交付物是 12 个文件：9 个标准件（`cluster_tree.json/txt`、`cluster_summary.md`、`cluster_brief.md`、`cluster_matrix.png`、`item_index.jsonl`、`syndrome.json/md`、`leaves.tsv`、`MANIFEST.json`）加 `verify.json`、`src_map.json`。`MANIFEST.json` 只登记 9 个标准件的校验和。`verify` 必须 `errors=0` 且 `locator_mismatch=0`。
 
 > 时间预期：script 引擎快速模式实测 6,243 条 / 79s（32 并发，约 4,700 条/分），35,000 条约 8 分钟；质量模式约慢 5–6 倍。
 

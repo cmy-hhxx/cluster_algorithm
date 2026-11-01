@@ -78,8 +78,9 @@ def component_map():
 
 
 def canon_component(raw):
+    """raw component -> (tool, label, stage)。v4 起 stage 由 components.json 的 role 决定。"""
     m = component_map().get(raw)
-    return (m['tool'], m['label']) if m else (raw, '')
+    return (m['tool'], m['label'], m.get('stage', '')) if m else (raw, '', '')
 
 
 def taxonomy(dir_=None):
@@ -134,6 +135,8 @@ def cmd_ingest(a):
                     if not isinstance(p, dict):
                         continue
                     seq += 1
+                    tool, comp_label, stage = canon_component(clean(p.get('component')))
+                    cent = component_map().get(clean(p.get('component'))) or {}
                     it = {
                         'seq': seq, 'date': (smeta.get('request_time') or '')[:10],
                         'file': f'{os.path.basename(os.path.dirname(f))}/{base}' if os.path.dirname(f) else base,
@@ -141,9 +144,12 @@ def cmd_ingest(a):
                         'case_id': ic.get('case_id') or tid, 'trace_id': tid, 'session_id': sid,
                         'turn_index': ti, 'problem_index': pi,
                         'problem_id': clean(p.get('problem_id')),
-                        'component': canon_component(clean(p.get('component')))[0],
-                        'component_label': canon_component(clean(p.get('component')))[1],
+                        'component': tool,
+                        'component_label': comp_label,
                         'component_raw': clean(p.get('component')),
+                        'component_role': cent.get('role', ''),
+                        'component_family': clean(p.get('component_family')),
+                        'stage': stage,
                         'label': clean(p.get('label')), 'definition': clean(p.get('definition')),
                         'phenomena': clean(p.get('problem_phenomena')), 'reason': clean(p.get('reason')),
                         'evidence': clean(p.get('evidence')),
@@ -196,7 +202,10 @@ def cmd_chunk(a):
     by = collections.defaultdict(list)
     unknown = collections.Counter()
     for it in items:
-        l1 = c2l.get(it['component'])
+        # v4：条目自带 stage（由 component+role 在 ingest 定死），老 run 退回 comp2l1
+        l1 = it.get('stage') or c2l.get(it['component'])
+        if l1 and '+' in str(l1):
+            l1 = None
         if not l1:
             unknown[it['component']] += 1
             sys.exit(f'未登记 component：{it["component"]!r}。请先写入 taxonomy/components.json 并指定所属段，再重跑。')

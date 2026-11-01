@@ -35,6 +35,8 @@ CLUSTER_REASONING=none ./run.sh classify $RUN --concurrency 24
 - 产出 `$RUN/assign/<chunk>.out.jsonl`，每行 `{seq, path, edge}`。
 - 需要可靠的边界标记时加 `--consensus 2`（成本约 ×2，用两次分歧标 `edge`）。
 
+> **本地跑不了这一步**（本机连不到 `interactive-*:5001`，`classify.py` 直接失败）。本地做法是派 DSH 子代理逐片判：每片给 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md`，8–12 并发，产出同样是 `assign/<chunk>.out.jsonl`。口径不变，只是慢。切换与前提见 [DEPLOY.md](DEPLOY.md) §4.0。
+
 ## 3. 聚合与校验（确定性，秒级）
 
 ```bash
