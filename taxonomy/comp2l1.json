@@ -28,5 +28,6 @@
  "答案合成": "S9",
  "Backtest": "S3",
  "alert": "S3",
- "create-automation": "S8"
+ "create-automation": "S8",
+ "pptx": "S8"
 }

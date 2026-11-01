@@ -21,7 +21,11 @@ echo "[$(date '+%F %T')] 常驻增量启动：每 ${INTERVAL}s 跑 aime_fast,aim
 while true; do
   sleep "$INTERVAL"
   echo "[$(date '+%F %T')] 增量触发"
-  if ! bin/run_trees.sh "$DS" --incremental --only aime_fast,aime_expert --concurrency "$CONC"; then
-    echo "[$(date '+%F %T')] 本次增量失败（退出码 $?），等下一轮"
+  rc=0
+  bin/run_trees.sh "$DS" --incremental --only aime_fast,aime_expert --concurrency "$CONC" || rc=$?
+  if (( rc != 0 )); then
+    echo "[$(date '+%F %T')] 本次增量失败（退出码 ${rc}），等下一轮"
+  else
+    echo "[$(date '+%F %T')] 本次增量完成"
   fi
 done
