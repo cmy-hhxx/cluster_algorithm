@@ -18,6 +18,10 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
+# 先加载服务器环境（.deploy/env.sh 把 PATH 指到带 Pillow 的 venv、设 NO_PROXY 与字体）
+# 不加载的话，tmux 里直接跑会用系统 python3，chart 步骤因缺 PIL 直接中断
+if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
+
 DS=${1:?用法: bin/run_trees.sh <datasets_root> [--incremental] [--concurrency N] [--only a,b] [--dry-run] [--no-deliver]}
 shift || true
 INC=0; CONC=${CLUSTER_CONCURRENCY:-24}; ONLY=""; DRY=0; DELIVER=1
