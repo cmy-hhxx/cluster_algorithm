@@ -107,31 +107,40 @@ updated to <sha>
 | 中文字体 | `fc-list :lang=zh` 或设 `CLUSTER_CHART_FONT` | chart 用 PIL 画，缺字体图上是方框 |
 | 并发 | `CLUSTER_CONCURRENCY` | 24–32，别超 32 |
 
-**在服务器上跑同一批**
+**一键跑（推荐）**
 
 ```bash
 cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
 tmux new -s cluster
-python3 bin/taxonomy_lint.py           # 必须 errors=0 再往下
-./run_cluster.sh /mnt/fin_bench/sync_datasets/datasets/0_wencai/eval_output/0_daily_eval/a_fast \
-                 runs/wencai_a_fast/run runs/wencai_a_fast/out 0
+bin/preflight.sh /mnt/fin_bench/sync_datasets/datasets        # 7 项预检，任一 FAIL 就别开跑
+bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets        # 6 棵树全量
+bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets --incremental   # 新数据并入既有 6 棵树
+bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets --only aime_expert   # 只跑一棵
 ```
 
-AIME 的树是「日常 + 流失」两个目录拼成的，`ingest` 只吃单个目录：先在 `runs/_src/<tree>/{daily,lost}/` 建软链再传目录（本地就是这么做的），或把两份文件合到一个临时目录。
+`bin/run_trees.sh` 会把 AIME 的「日常 + 流失」软链到 `runs/_src/<树>/{daily,lost}/`（`ingest` 只吃单个目录），逐棵跑完 `init → classify → finish → make_src_map`，再把 12 个文件拷进 `cluster/<model>/`。
 
-**增量（新数据进来时，不要全量重跑）**
+**手工分步（排错用）**
 
 ```bash
-python3 bin/cluster.py ingest --input <新数据目录> --out runs/<tree>/run_delta
-python3 bin/cluster.py chunk  --work runs/<tree>/run_delta --size 60
-./run.sh classify runs/<tree>/run_delta --concurrency 24
-python3 bin/merge_runs.py --out runs/<tree>/run_merged runs/<tree>/run runs/<tree>/run_delta
-./run.sh finish runs/<tree>/run_merged <out_dir> 0 <src_root>
-python3 bin/make_src_map.py --run runs/<tree>/run_merged --out <out_dir> --version 4.1.1
+./run_cluster.sh <输入 jsonl 或目录> <run_dir> <out_dir> [全量会话数] [cases 目录]
 ```
 
-- 去重键 `(session_id, trace_id, json_path)`：已判过的条目**不会重判**，只判 `run_delta` 里的新增条目；重复记录被丢弃，数量写进 `run_merged/stats.json` 的 `deduped`。
-- 关键在只对 `run_delta` 跑 `chunk` + `classify`，整棵树不参与。
+**增量（不要全量重跑）**
+
+```bash
+python3 bin/cluster.py ingest --input <数据目录> --out runs/<树>/run_new
+python3 bin/make_delta.py --old runs/<树>/run_merged --new runs/<树>/run_new --out runs/<树>/run_delta
+python3 bin/cluster.py chunk --work runs/<树>/run_delta --size 60
+./run.sh classify runs/<树>/run_delta --concurrency 24
+python3 bin/merge_runs.py --out runs/<树>/run_next runs/<树>/run_merged runs/<树>/run_delta
+./run.sh finish runs/<树>/run_next <out_dir> 0 <src_root>
+mv runs/<树>/run_next runs/<树>/run_merged          # 基线前移，下次增量从这里比
+```
+
+- **基线**是 `runs/<树>/run_merged`（跑过增量后）或 `runs/<树>/run`（只跑过全量），每棵树只有一个。
+- 去重键 `(session_id, trace_id, json_path)`：已判过的条目**不会重判**，只判 `run_delta` 里的新增条目；重复记录被丢弃，数量写进 `run_delta/stats.json` 的 `already_known`。
+- 关键在只对 `run_delta` 跑 `chunk` + `classify`，整棵树不参与。`--dry-run` 一律写 `runs/<树>/run_dry`，不会碰基线。
 
 **换机器后的一个坑**：`merge_runs` 会把 `file` / `src_path` 统一写成本机绝对路径，所以 `item_index.jsonl` 里的 `src_file` 在跑批机器上可直接打开、换机器后失效。每次交付都要重跑 `bin/make_src_map.py` 生成 `src_map.json`，它是"相对路径 ↔ 原始文件"的唯一索引。
 
