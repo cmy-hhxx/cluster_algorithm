@@ -1,25 +1,29 @@
 #!/usr/bin/env bash
-# 6 棵树一键跑（服务器口径）。
-#   全量：init → classify（直调网关）→ finish → make_src_map → 拷到 cluster/
-#   增量：ingest 新导出 → make_delta（只取未归类）→ chunk → classify → merge → finish → 交付
+# 8 棵树一键跑（问财日常 4 + AIME 日常 2 + AIME 流失 2）。
+#   全量：init → classify → finish → make_src_map → 拷到 <输入目录同级>/cluster/<model>/
+#   增量：ingest → make_delta（只取未归类）→ chunk → classify → merge → finish → 交付
 #
-# 基线约定：每棵树只有一个「当前全量状态」目录——
-#   runs/<树>/run_merged（跑过增量后）或 runs/<树>/run（只跑过全量）。
-#   增量只判新增条目，已归类的条目一条不重判；全量重跑后会清掉旧的增量基线。
+# 树与目录（<D> = datasets 根）：
+#   问财日常  <D>/0_wencai/eval_output/0_daily_eval/{a_fast,b_fast,a_expert,b_expert}
+#   AIME日常  <D>/1_aime/eval_output/0_daily_eval/{aime_fast,aime_expert}
+#   AIME流失  <D>/1_aime/eval_output/1_lost_user_eval/{aime_fast,aime_expert}
+#   交付      就在各自 eval 目录下的 cluster/<model>/
 #
+# 基线约定：每棵树一个「当前全量状态」目录 runs/<树>/run_merged（跑过增量）或 run（只跑过全量）。
+#   增量时若基线不存在 → 自动退回全量（cron 第一次触发就能把基线建好）。
+#'
 # 用法：
 #   bin/run_trees.sh <datasets_root> [--incremental] [--concurrency N] [--only a,b] [--dry-run] [--no-deliver]
 #
 # 例：
-#   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets                 # 全量重跑 6 棵树
-#   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets --incremental   # 新数据并入既有 6 棵树
-#   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets --only aime_expert --dry-run
+#   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets                        # 8 棵全量
+#   bin/run_trees.sh <D> --only wencai_a_fast,aime_fast_daily                    # 只跑几棵
+#   bin/run_trees.sh <D> --incremental --only aime_fast_lost,aime_expert_lost     # 流失增量
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
 # 先加载服务器环境（.deploy/env.sh 把 PATH 指到带 Pillow 的 venv、设 NO_PROXY 与字体）
-# 不加载的话，tmux 里直接跑会用系统 python3，chart 步骤因缺 PIL 直接中断
 if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 
 DS=${1:?用法: bin/run_trees.sh <datasets_root> [--incremental] [--concurrency N] [--only a,b] [--dry-run] [--no-deliver]}
@@ -32,7 +36,7 @@ while (($#)); do
     --only)        ONLY=${2:?}; shift ;;
     --dry-run)     DRY=1 ;;
     --no-deliver)  DELIVER=0 ;;
-    -h|--help)     sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help)     sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
   shift
@@ -40,83 +44,120 @@ done
 CONC=${CONC:-24}
 (( CONC <= 32 )) || { echo "并发上限 32，当前 $CONC" >&2; exit 2; }
 
-W="$DS/0_wencai/eval_output/0_daily_eval"
-A="$DS/1_aime/eval_output"
 WORK="$ROOT/runs"
 VER=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])")
+LEDGER="$WORK/_runs.jsonl"
+
+# 同一时刻只允许一批在跑（cron 与手动撞车时，后到的直接让路）
+mkdir -p "$WORK"
+exec 9>"$WORK/.lock"
+if ! flock -n 9; then echo "另一批聚类正在运行，本次跳过（锁 $WORK/.lock）"; exit 0; fi
+
+W="$DS/0_wencai/eval_output/0_daily_eval"
+AD="$DS/1_aime/eval_output/0_daily_eval"
+AL="$DS/1_aime/eval_output/1_lost_user_eval"
+
+TREES=(
+  "wencai_a_fast|$W/a_fast"
+  "wencai_b_fast|$W/b_fast"
+  "wencai_a_expert|$W/a_expert"
+  "wencai_b_expert|$W/b_expert"
+  "aime_fast_daily|$AD/aime_fast"
+  "aime_expert_daily|$AD/aime_expert"
+  "aime_fast_lost|$AL/aime_fast"
+  "aime_expert_lost|$AL/aime_expert"
+)
 
 selected() { [[ -z "$ONLY" ]] && return 0; [[ ",$ONLY," == *",$1,"* ]]; }
-
-stage_aime() {  # $1=树名 $2=model 目录名；AIME 是「日常+流失」两处，ingest 只吃单目录，先做软链
-  local d="$WORK/_src/$1" f
-  rm -rf "$d"; mkdir -p "$d/daily" "$d/lost"
-  for f in "$A/0_daily_eval/$2"/*attribution*.jsonl; do [[ -e "$f" ]] && ln -sf "$f" "$d/daily/"; done
-  for f in "$A/1_lost_user_eval/$2"/*attribution*.jsonl; do [[ -e "$f" ]] && ln -sf "$f" "$d/lost/"; done
-  echo "$d"
-}
-
-baseline() {  # 当前全量状态目录
+baseline() {
   local t=$1
   if [[ -f "$WORK/$t/run_merged/items.jsonl" ]]; then echo "$WORK/$t/run_merged"
-  elif [[ -f "$WORK/$t/run/items.jsonl" ]];  then echo "$WORK/$t/run"
+  elif [[ -f "$WORK/$t/run/items.jsonl" ]]; then echo "$WORK/$t/run"
   else echo ""; fi
 }
+nitems() { if [[ -f "$1/items.jsonl" ]]; then wc -l < "$1/items.jsonl" | tr -d ' '; else echo 0; fi; }
+ledger() {  # $1=树 $2=模式 $3=条目 $4=增量 $5=耗时 $6=校验
+  python3 - "$LEDGER" "$1" "$2" "$3" "$4" "$5" "$6" "$VER" <<'PY'
+import json, os, sys, datetime
+p, tree, mode, items, delta, elapsed, verify, ver = sys.argv[1:9]
+row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+       "tree": tree, "mode": mode, "items": int(items), "delta": int(delta),
+       "elapsed_s": int(elapsed), "verify": verify, "version": ver}
+with open(p, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+}
 
-run_tree() {  # $1=树名 $2=输入目录 $3=src_root（verify 用） $4=交付目录
-  local t=$1 src=$2 srcroot=$3 dst=$4
-  local base out final n
+run_tree() {  # $1=树名 $2=输入目录
+  local t=$1 src=$2
+  local srcroot out deliver base final t0 n delta v mode
+  srcroot=$(dirname "$src")
   out="$WORK/$t/out"
+  deliver="$srcroot/cluster/$(basename "$src")"
+
   echo
   echo "=== $t ==="
+  echo "  输入：$src"
 
-  if [[ $DRY -eq 1 ]]; then   # 干跑：只写 *.dry，绝不碰正式目录
+  if [[ $DRY -eq 1 ]]; then
     python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_dry" | tail -1
     python3 bin/cluster.py chunk --work "$WORK/$t/run_dry" --size 60
-    echo "[dry-run] 已 ingest+chunk 到 $WORK/$t/run_dry，未归类、未覆盖正式基线"
+    echo "[dry-run] 已 ingest+chunk 到 $WORK/$t/run_dry，未归类"
     return 0
   fi
 
-  if [[ $INC -eq 0 ]]; then
-    ./run.sh init "$src" "$WORK/$t/run"
-    ./run.sh classify "$WORK/$t/run" --concurrency "$CONC"
-    ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
-    rm -rf "$WORK/$t/run_merged" "$WORK/$t/run_delta" "$WORK/$t/run_new"   # 全量重跑后旧增量基线作废
-    final="$WORK/$t/run"
-  else
-    base=$(baseline "$t")
-    [[ -n "$base" ]] || { echo "缺少基线（$WORK/$t/run 或 run_merged），增量前要先跑一次全量" >&2; exit 1; }
-    echo "  基线：${base}（$(wc -l < "$base/items.jsonl" | tr -d ' ') 条）"
+  base=$(baseline "$t")
+  t0=$(date +%s)
+
+  if [[ $INC -eq 1 && -n "$base" ]]; then
+    mode=incremental
+    echo "  模式：增量（基线 $(nitems "$base") 条）"
     python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_new" | tail -1
     python3 bin/make_delta.py --old "$base" --new "$WORK/$t/run_new" --out "$WORK/$t/run_delta" | tail -1
-    n=$(python3 -c "import json;print(json.load(open('$WORK/$t/run_delta/stats.json'))['delta'])")
-    if [[ "$n" == "0" ]]; then
+    delta=$(python3 -c "import json;print(json.load(open('$WORK/$t/run_delta/stats.json'))['delta'])")
+    if [[ "$delta" == "0" ]]; then
       echo "  无新增条目，跳过"
       rm -rf "$WORK/$t/run_new" "$WORK/$t/run_delta"
+      ledger "$t" incremental "$(nitems "$base")" 0 "$(( $(date +%s) - t0 ))" "noop"
       return 0
     fi
     python3 bin/cluster.py chunk --work "$WORK/$t/run_delta" --size 60
     ./run.sh classify "$WORK/$t/run_delta" --concurrency "$CONC"
     python3 bin/merge_runs.py --out "$WORK/$t/run_next" "$base" "$WORK/$t/run_delta" | tail -1
     ./run.sh finish "$WORK/$t/run_next" "$out" 0 "$srcroot"
-    rm -rf "$WORK/$t/run_merged"
-    mv "$WORK/$t/run_next" "$WORK/$t/run_merged"
+    rm -rf "$WORK/$t/run_merged"; mv "$WORK/$t/run_next" "$WORK/$t/run_merged"
     final="$WORK/$t/run_merged"
     rm -rf "$WORK/$t/run_new" "$WORK/$t/run_delta"
+    n=$(nitems "$final")
+  else
+    mode=full
+    [[ $INC -eq 1 ]] && echo "  模式：全量（尚无基线，自动建基线）"
+    ./run.sh init "$src" "$WORK/$t/run"
+    ./run.sh classify "$WORK/$t/run" --concurrency "$CONC"
+    ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
+    rm -rf "$WORK/$t/run_merged" "$WORK/$t/run_delta" "$WORK/$t/run_new"
+    final="$WORK/$t/run"
+    n=$(nitems "$final")
+    delta=$n
   fi
 
   python3 bin/make_src_map.py --run "$final" --out "$out" --version "$VER"
+  v=$(python3 -c "import json;d=json.load(open('$out/verify.json'));print(f\"err={d['errors']},mismatch={d['locator_mismatch']}\")")
   if [[ $DELIVER -eq 1 ]]; then
-    mkdir -p "$dst"; cp "$out"/* "$dst"/
-    echo "交付：${dst}（$(ls -1 "$dst" | wc -l | tr -d ' ') 个文件）"
+    mkdir -p "$deliver"
+    cp "$out"/* "$deliver"/
+    echo "  交付：$deliver（$(ls -1 "$deliver" | wc -l | tr -d ' ') 个文件）"
   fi
+  echo "  结果：$n 条，$v"
+  ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v"
 }
 
-if selected wencai_a_fast;   then run_tree wencai_a_fast   "$W/a_fast"   "$W" "$W/cluster/a_fast";   fi
-if selected wencai_b_fast;   then run_tree wencai_b_fast   "$W/b_fast"   "$W" "$W/cluster/b_fast";   fi
-if selected wencai_a_expert; then run_tree wencai_a_expert "$W/a_expert" "$W" "$W/cluster/a_expert"; fi
-if selected wencai_b_expert; then run_tree wencai_b_expert "$W/b_expert" "$W" "$W/cluster/b_expert"; fi
-if selected aime_fast;       then S=$(stage_aime aime_fast aime_fast);     run_tree aime_fast   "$S" "$S" "$A/cluster/aime_fast";   fi
-if selected aime_expert;     then S=$(stage_aime aime_expert aime_expert); run_tree aime_expert "$S" "$S" "$A/cluster/aime_expert"; fi
+for row in "${TREES[@]}"; do
+  t=${row%%|*}; src=${row#*|}
+  selected "$t" || continue
+  if [[ ! -d "$src" ]]; then echo "跳过 $t：输入目录不存在 $src"; continue; fi
+  run_tree "$t" "$src"
+done
 
 echo
-echo "全部完成。逐棵校验：for f in runs/*/out/verify.json; do echo \$f; cat \$f; done"
+echo "全部完成。运行记录：$LEDGER"
