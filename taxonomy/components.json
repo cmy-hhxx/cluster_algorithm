@@ -982,5 +982,29 @@
   "label": "代码解释器（extract_daily.py 请求生成）",
   "role": "request_generation",
   "stage": "S10"
+ },
+ "/harness/workdir/bt_sap.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 bt_sap.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/harness/workdir/swing/fetch_bars.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 swing/fetch_bars.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "/harness/workdir/swing/fetch2.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 swing/fetch2.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "viz.py 请求生成": {
+  "tool": "shell",
+  "label": "代码解释器（viz.py 请求生成）",
+  "role": "request_generation",
+  "stage": "S10"
  }
 }
