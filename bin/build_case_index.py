@@ -54,11 +54,11 @@ def scan_sources(ds):
                     continue
                 c = cases.setdefault(bid, {'bad_case_id': bid, 'channel': ch, 'user_id': C.clean(sm.get('user_id')),
                                            'question': q, 'request_time': t, 'request_time_iso': C.iso_time(t),
-                                           'sources': []})
+                                           '_times': [], 'sources': []})
+                c['_times'].append(C.iso_time(t) or t)
                 c['sources'].append({'tree': tree, 'eval_dir': eval_dir, 'model': model, 'file': f,
                                      'line': ln, 'trace_id': (r.get('turns') or [{}])[0].get('meta', {}).get('trace_id', ''),
-                                     'session_id': sm.get('session_id') or '', 'item_count': 0,
-                                     'top_leaf_path': '', 'top_leaf_name': '', 'leaf_count': 0})
+                                     'session_id': sm.get('session_id') or '', 'tree_item_count': 0})
     return cases
 
 
@@ -95,9 +95,11 @@ def main():
     leaf_name = {n['id']: n['name'] for n in json.load(open(os.path.join(ROOT, 'taxonomy', 'inventory.json'),
                                                             encoding='utf-8'))['nodes']}
 
+    orphans = 0
     for (ch, bid), agg in trees.items():
         c = cases.get(bid)
-        if not c:                      # 产物里有、源里没有（理论上不该发生）→ 跳过并计数
+        if not c:                      # 产物里有、源里没有（理论上不该发生）
+            orphans += 1
             continue
         c['item_count'] = agg['items']
         c['leaf_count'] = len(agg['leaves'])
@@ -106,8 +108,7 @@ def main():
             c['top_leaf_path'] = top
             c['top_leaf_name'] = leaf_name.get(top, '')
         for src in c['sources']:
-            if src['tree'] in agg['trees']:
-                src['item_count'] = agg['trees'][src['tree']]
+            src['tree_item_count'] = agg['trees'].get(src['tree'], 0)
 
     stats = {}
     for ch, fname in (('wencai', 'bad_case_index_wencai.jsonl'), ('aime', 'bad_case_index_aime.jsonl')):
@@ -118,9 +119,9 @@ def main():
             c.setdefault('top_leaf_path', '')
             c.setdefault('top_leaf_name', '')
             c.setdefault('status', '')
-            iso = [s for s in (c['request_time_iso'],) if s]
-            c['first_seen'] = min(iso) if iso else c['request_time']
-            c['last_seen'] = max(iso) if iso else c['request_time']
+            times = [t for t in c.pop('_times', []) if t]
+            c['first_seen'] = min(times) if times else c['request_time']
+            c['last_seen'] = max(times) if times else c['request_time']
         rows.sort(key=lambda c: (c['request_time'], c['bad_case_id']))
         p = os.path.join(out, fname)
         with open(p, 'w', encoding='utf-8') as fh:
@@ -131,6 +132,8 @@ def main():
                      'items': sum(c['item_count'] for c in rows), 'file': p}
         print(f"{ch}: {len(rows)} 个 case（有归因 {with_items} / 无归因 {len(rows)-with_items}，"
               f"覆盖 {stats[ch]['items']} 条 item） -> {p}")
+    if orphans:
+        print(f"WARN 有 {orphans} 个 (channel, bad_case_id) 只出现在产物、源里找不到，已跳过")
     return stats
 
 

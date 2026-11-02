@@ -18,7 +18,17 @@ echo "$OUT" | grep -q "errors=0" && ok "$OUT" || bad "$OUT"
 
 echo "[2/7] 版本"
 V=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])" 2>/dev/null || echo "?")
-[[ "$V" == 4.1.* ]] && ok "VERSION ${V}（12 段 / 171 叶）" || bad "VERSION ${V}，与文档的 4.1.x 不一致"
+# 只要求 >= 4.1（分类法三轴定稿），不再钉死小版本，避免每次发版都要改预检
+python3 - "$V" <<'PYV'
+import sys
+v = sys.argv[1]
+try:
+    major, minor = (int(x) for x in v.split('.')[:2])
+except Exception:
+    print(f"FAIL  无法解析版本号 {v!r}"); sys.exit(1)
+sys.exit(0 if (major, minor) >= (4, 1) else 1)
+PYV
+if [[ $? -eq 0 ]]; then ok "VERSION ${V}"; else bad "VERSION ${V}，低于 4.1（分类法三轴定稿）"; fi
 
 echo "[3/7] .deploy/env.sh"
 if [[ -f .deploy/env.sh ]]; then

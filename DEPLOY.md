@@ -100,7 +100,7 @@ updated to <sha>
 
 | 项 | 怎么查 | 通过标准 |
 |---|---|---|
-| 分类法版本 | `python3 bin/taxonomy_lint.py` | `errors=0`，且 `VERSION.json` 是 4.1.1（12 段 / 171 叶） |
+| 分类法版本 | `python3 bin/taxonomy_lint.py` | `errors=0`，且 `VERSION.json` >= 4.1（当前 4.2.0：12 段 / 171 叶） |
 | 网关可达 | `curl -s -o /dev/null -w '%{http_code}\n' $CLUSTER_GATEWAYS/models` | 200 |
 | `.deploy/env.sh` | `ls .deploy/env.sh` | 存在且能 `source`（本地缺的就是这个） |
 | API key | `echo $EVAL_GATEWAY_API_KEY` | 内网网关默认 `dummy` 可用 |

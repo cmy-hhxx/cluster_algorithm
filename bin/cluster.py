@@ -111,7 +111,10 @@ CHANNEL_PREFIX = {'wencai': 'bc_wc_', 'aime': 'bc_ai_'}
 
 
 def norm_question(q):
-    return re.sub(r'\s+', ' ', (q or '').strip())
+    """规范化问句：去掉所有空白。
+    不能只把连续空白压成一个空格——「9月23日  的」压完会变成「9月23日 的」，
+    与「9月23日的」凭空差一个空格，中文里这是同一句；英文两种写法也应视为同句。"""
+    return re.sub(r'\s+', '', (q or ''))
 
 
 def norm_minute(ts):
