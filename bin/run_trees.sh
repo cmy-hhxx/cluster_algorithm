@@ -51,10 +51,14 @@ WORK="$ROOT/runs"
 VER=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])")
 LEDGER="$WORK/_runs.jsonl"
 
-# 同一时刻只允许一批在跑（cron 与手动撞车时，后到的直接让路）
+# 同一时刻只允许一批在跑（cron/守护与手动撞车时，后到的直接让路）
 mkdir -p "$WORK"
-exec 9>"$WORK/.lock"
-if ! flock -n 9; then echo "另一批聚类正在运行，本次跳过（锁 $WORK/.lock）"; exit 0; fi
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$WORK/.lock"
+  if ! flock -n 9; then echo "另一批聚类正在运行，本次跳过（锁 $WORK/.lock）"; exit 0; fi
+else
+  echo "提示：本机没有 flock，跳过并发锁（仅本地联调会遇到，服务器不触发）" >&2
+fi
 
 W="$DS/0_wencai/eval_output/0_daily_eval"
 A="$DS/1_aime/eval_output"
@@ -116,11 +120,16 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   fi
 
   base=$(baseline "$t")
+  if [[ $INC -eq 1 && -z "$base" && $NOFULL -eq 1 ]]; then
+    echo "  $t 缺少基线，且指定了 --no-full-fallback：拒绝退化成全量" >&2
+    exit 3
+  fi
   t0=$(date +%s)
 
   if [[ $INC -eq 1 && -n "$base" ]]; then
     mode=incremental
     echo "  模式：增量（基线 $(nitems "$base") 条）"
+    rm -rf "$WORK/$t/run_delta"        # 上一次可能被中途杀掉，清掉避免复用半成品判定
     python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_new" | tail -1
     python3 bin/make_delta.py --old "$base" --new "$WORK/$t/run_new" --out "$WORK/$t/run_delta" | tail -1
     delta=$(python3 -c "import json;print(json.load(open('$WORK/$t/run_delta/stats.json'))['delta'])")
@@ -173,6 +182,7 @@ done
 echo
 if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
   echo "重建 bad_case 索引（按渠道）..."
-  python3 bin/build_case_index.py --datasets "$DS" | sed 's/^/  /'
+  python3 bin/build_case_index.py --datasets "$DS" 2>&1 | sed 's/^/  /' || \
+    echo "  WARN 索引重建失败，但 6 棵树本身已交付（下次跑会重试）"
 fi
 echo "全部完成。运行记录：$LEDGER"
