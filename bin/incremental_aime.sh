@@ -6,14 +6,14 @@
 # 停止：
 #   tmux kill-session -t aime-incr
 #
-# 默认每 7200 秒（2 小时）跑一次；--incremental 会自动判断：
-#   基线不存在 → 全量建基线；有基线 → 只判新增条目；无新增 → 跳过并记账。
+# 默认每 1800 秒（30 分钟）跑一次；--incremental 只判新增条目，无新增直接跳过。
+# 带 --no-full-fallback：基线缺失时**报错退出**，绝不悄悄退化成全量。
 # 与全量重建共用一把锁（runs/.lock），撞车时后到的直接让路。
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 DS=${DATASETS:-/mnt/fin_bench/sync_datasets/datasets}
-INTERVAL=${1:-7200}
+INTERVAL=${1:-1800}   # 默认 30 分钟；日常更新频繁时靠这个节拍跟上
 CONC=${CLUSTER_CONCURRENCY:-16}
 mkdir -p logs
 
@@ -22,7 +22,7 @@ while true; do
   sleep "$INTERVAL"
   echo "[$(date '+%F %T')] 增量触发"
   rc=0
-  bin/run_trees.sh "$DS" --incremental --only aime_fast,aime_expert --concurrency "$CONC" || rc=$?
+  bin/run_trees.sh "$DS" --incremental --no-full-fallback --only aime_fast,aime_expert --concurrency "$CONC" || rc=$?
   if (( rc != 0 )); then
     echo "[$(date '+%F %T')] 本次增量失败（退出码 ${rc}），等下一轮"
   else

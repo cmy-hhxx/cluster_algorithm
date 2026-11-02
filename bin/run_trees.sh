@@ -20,6 +20,7 @@
 #   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets                        # 8 棵全量
 #   bin/run_trees.sh <D> --only wencai_a_fast,aime_fast_daily                    # 只跑几棵
 #   bin/run_trees.sh <D> --incremental --only aime_fast,aime_expert               # AIME 增量（含新流失）
+#   bin/run_trees.sh <D> --incremental --no-full-fallback --only aime_fast        # 只允许增量，没基线就报错
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
@@ -29,7 +30,7 @@ if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 
 DS=${1:?用法: bin/run_trees.sh <datasets_root> [--incremental] [--concurrency N] [--only a,b] [--dry-run] [--no-deliver]}
 shift || true
-INC=0; CONC=${CLUSTER_CONCURRENCY:-24}; ONLY=""; DRY=0; DELIVER=1
+INC=0; CONC=${CLUSTER_CONCURRENCY:-24}; ONLY=""; DRY=0; DELIVER=1; NOFULL=0
 while (($#)); do
   case "$1" in
     --incremental) INC=1 ;;
@@ -37,6 +38,7 @@ while (($#)); do
     --only)        ONLY=${2:?}; shift ;;
     --dry-run)     DRY=1 ;;
     --no-deliver)  DELIVER=0 ;;
+    --no-full-fallback) NOFULL=1 ;;
     -h|--help)     sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
