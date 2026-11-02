@@ -141,8 +141,13 @@ def bad_case_id(channel, question, request_time):
 
 
 def guess_channel(path):
+    """从路径推渠道。注意 AIME 的基线 src_path 指向 runs/_src/aime_* 软链目录，
+    里面没有 1_aime 字样，所以还要按 aime 这个词和 staging 目录名兜一层。"""
     p = path.replace('\\', '/')
-    return 'aime' if '/1_aime/' in p or p.startswith('1_aime/') else 'wencai'
+    low = p.lower()
+    if '/1_aime/' in p or p.startswith('1_aime/') or 'aime' in low:
+        return 'aime'
+    return 'wencai'
 
 
 def taxonomy(dir_=None):
