@@ -107,6 +107,44 @@ def canon_component(raw):
     return (raw, '', '')
 
 
+CHANNEL_PREFIX = {'wencai': 'bc_wc_', 'aime': 'bc_ai_'}
+
+
+def norm_question(q):
+    return re.sub(r'\s+', ' ', (q or '').strip())
+
+
+def norm_minute(ts):
+    """'2026-10-01 15:26:55' 与 '2026-10-22T01:10:07.510Z' 都归一到 'YYYY-MM-DD HH:MM'；解析不了返回 ''。"""
+    m = re.match(r'^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})', (ts or '').strip())
+    return f'{m.group(1)} {m.group(2)}' if m else ''
+
+
+def iso_time(ts):
+    s = (ts or '').strip()
+    if not s:
+        return ''
+    if re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}', s):
+        return s
+    m = re.match(r'^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$', s)
+    return f'{m.group(1)}T{m.group(2)}+08:00' if m else ''
+
+
+def bad_case_id(channel, question, request_time):
+    """一个「问句实例」的稳定 id：渠道 + 规范化问句 + 截断到分钟的时间。
+    时间截断到分钟是为了吸收跨树跑批的 1-2 秒漂移；渠道进哈希是为了让问财/AIME 不互相撞。"""
+    q, t = norm_question(question), norm_minute(request_time)
+    if not q or not t:
+        return ''
+    h = hashlib.sha256(f'{channel}\x1f{q}\x1f{t}'.encode('utf-8')).hexdigest()[:16]
+    return CHANNEL_PREFIX.get(channel, 'bc_') + h
+
+
+def guess_channel(path):
+    p = path.replace('\\', '/')
+    return 'aime' if '/1_aime/' in p or p.startswith('1_aime/') else 'wencai'
+
+
 def taxonomy(dir_=None):
     d = dir_ or os.path.join(ROOT, 'taxonomy')
     inv = jload(os.path.join(d, 'inventory.json'))
@@ -141,6 +179,7 @@ def cmd_ingest(a):
     seq = 0
     for f in files:
         base = os.path.basename(f)
+        channel = guess_channel(f) if a.channel == 'auto' else a.channel
         for ln, line in enumerate(read_lines(f), 1):
             if not line.strip():
                 continue
@@ -151,6 +190,10 @@ def cmd_ingest(a):
                 continue
             smeta = rec.get('session_meta') or {}
             sid = smeta.get('session_id') or ''
+            uid = clean(smeta.get('user_id'))
+            question = clean(smeta.get('question'))
+            rtime = clean(smeta.get('request_time'))
+            bid = bad_case_id(channel, question, rtime)
             for ti, t in enumerate(rec.get('turns') or []):
                 meta = t.get('meta') or {}
                 tid = meta.get('trace_id') or ''
@@ -166,6 +209,8 @@ def cmd_ingest(a):
                         'file': f'{os.path.basename(os.path.dirname(f))}/{base}' if os.path.dirname(f) else base,
                         'src_path': f, 'line': ln, 'json_path': f'turns[{ti}].problem[{pi}]',
                         'case_id': ic.get('case_id') or tid, 'trace_id': tid, 'session_id': sid,
+                        'user_id': uid, 'question': question, 'request_time': rtime,
+                        'request_time_iso': iso_time(rtime), 'bad_case_id': bid, 'channel': channel,
                         'turn_index': ti, 'problem_index': pi,
                         'problem_id': clean(p.get('problem_id')),
                         'component': tool,
@@ -181,7 +226,8 @@ def cmd_ingest(a):
                     }
                     items.append(it)
                     loc.append({k: it[k] for k in ('seq', 'date', 'file', 'line', 'json_path', 'case_id',
-                                                   'trace_id', 'session_id', 'problem_id', 'problem_index',
+                                                   'trace_id', 'session_id', 'user_id', 'bad_case_id',
+                                                   'request_time', 'problem_id', 'problem_index',
                                                    'component', 'label', 'turn_index')})
     os.makedirs(a.out, exist_ok=True)
     with open(os.path.join(a.out, 'items.jsonl'), 'w', encoding='utf-8') as fh:
@@ -283,7 +329,8 @@ def cmd_aggregate(a):
 
     def ref(s, k=160):
         L, it = loc[s], items[s]
-        return {'seq': s, 'case_id': L['case_id'], 'session_id': L['session_id'], 'trace_id': L['trace_id'],
+        return {'seq': s, 'case_id': L['case_id'], 'bad_case_id': L.get('bad_case_id', ''),
+                'user_id': L.get('user_id', ''), 'session_id': L['session_id'], 'trace_id': L['trace_id'],
                 'date': L['date'], 'src_file': L['file'], 'src_line': L['line'], 'json_path': L['json_path'],
                 'problem_id': L['problem_id'], 'problem_index': L['problem_index'],
                 'component': it['component'], 'label': it['label'], 'definition': it['definition'][:k]}
@@ -736,6 +783,7 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
 
     p = sub.add_parser('ingest'); p.add_argument('--input', required=True); p.add_argument('--cases')
+    p.add_argument('--channel', default='auto', choices=['auto', 'wencai', 'aime'])
     p.add_argument('--out', required=True); p.set_defaults(fn=cmd_ingest)
     p = sub.add_parser('chunk'); p.add_argument('--work', required=True); p.add_argument('--size', type=int, default=200)
     p.set_defaults(fn=cmd_chunk)

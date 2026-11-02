@@ -169,4 +169,8 @@ for row in "${TREES[@]}"; do
 done
 
 echo
+if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
+  echo "重建 bad_case 索引（按渠道）..."
+  python3 bin/build_case_index.py --datasets "$DS" | sed 's/^/  /'
+fi
 echo "全部完成。运行记录：$LEDGER"
