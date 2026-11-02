@@ -164,6 +164,20 @@ wc -l runs/*/run_merged/items.jsonl      # 应与本机一致：211/265/332/378/
 
 `rebase_paths.py` 只改 `src_path`/`file`，不动判定与 seq，可重复执行（路径已对就是 no-op）。
 
+**bad_case_id 与 bad_case 索引（v4.2 起）**
+
+聚类产物要能按「一次提问」回查用户、定位原始归因输出，并支持之后用同一个 id 重新触发问句做对比。
+
+- `item_index.jsonl` 每条新增 `user_id` / `bad_case_id` / `request_time`；`cluster_tree.json` 的 samples 也带 `bad_case_id`、`user_id`。
+- **id 怎么算**：`bc_wc_<16位>` / `bc_ai_<16位>` = 渠道 + 规范化问句（压掉连续空白）+ **截断到分钟**的 request_time 的 sha256。时间截到分钟是为了吸收跨树跑批的 1–2 秒漂移；渠道进哈希是为了让问财/AIME 不互撞；`question` 或时间缺失时留空，不造无法重放的假 case（本批 188 条属于这种情况）。
+- **粒度**：一个 `bad_case_id` = 一次提问，属于它的多条 problem 条目共享同一个 id。
+- **索引**（按渠道各一份，放 datasets 根）：
+  `bad_case_index_wencai.jsonl` / `bad_case_index_aime.jsonl`，一行一个 case，字段含
+  `bad_case_id / channel / user_id / question / request_time / request_time_iso / item_count / leaf_count / top_leaf_path / top_leaf_name / status / first_seen / last_seen / sources[]`，
+  `sources[]` 里带 `tree / eval_dir / model / file / line / trace_id / session_id`，直接指向原始 attribution 的那一行。
+- **重建**：`bin/build_case_index.py --datasets <D>`（`run_trees.sh` 在所有树跑完后会自动调用）。它会连**0 条 problem 的 case** 一起收进来（来源于逐条扫源文件），所以索引是"这次评测碰到过哪些问句"的全集。
+- **历史数据回填**：`bin/backfill_case_fields.py --run runs/<树>/run_merged [--channel aime]`，回读源记录重算字段、顺带重建 locators，**不重新归类**。AIME 的基线 src_path 指向 `runs/_src/...` 软链，务必显式传 `--channel aime`。
+
 **换机器后的一个坑**：`merge_runs` 会把 `file` / `src_path` 统一写成本机绝对路径，所以 `item_index.jsonl` 里的 `src_file` 在跑批机器上可直接打开、换机器后失效。每次交付都要重跑 `bin/make_src_map.py` 生成 `src_map.json`，它是"相对路径 ↔ 原始文件"的唯一索引。
 
 ### 4.1 跑一次
