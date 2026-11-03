@@ -1084,5 +1084,23 @@
   "label": "技能加载",
   "role": "tool",
   "stage": "S8"
+ },
+ "list_client_tools": {
+  "tool": "client_action",
+  "label": "客户端工具清单",
+  "role": "tool",
+  "stage": "S8"
+ },
+ "understand-image-2": {
+  "tool": "understand_image",
+  "label": "图像理解（通道2）",
+  "role": "planning",
+  "stage": "S8"
+ },
+ "web_search_evaluate": {
+  "tool": "web_search",
+  "label": "网页检索（结果评估）",
+  "role": "tool",
+  "stage": "S5"
  }
 }
