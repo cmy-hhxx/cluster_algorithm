@@ -86,7 +86,7 @@ else
     if [[ "$code" == "200" ]]; then ok "${g%/}/models -> 200"; HIT=$((HIT + 1))
     else warn "${g%/}/models -> ${code:-000}"; fi
   done
-  (( HIT > 0 )) || blk "没有任何网关可达：$CLUSTER_GATEWAYS（外部依赖，等开通）"
+  (( HIT > 0 )) || blk "没有任何网关可达：${CLUSTER_GATEWAYS}（外部依赖，等开通）"
 fi
 
 echo "[6/8] 中文字体（chart 用 PIL 画图，缺字体会出方框）"
@@ -149,7 +149,7 @@ if [[ -d .git ]]; then
     warn "有 .git 但 git 用不了（常见：ceph 上仓库属主与当前用户不同 → dubious ownership）；版本看 .deploy/DEPLOYED.json"
   else
     DIRTY=$(git status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$DIRTY" == "0" ]] && ok "git 干净（$SHA）" || warn "有 $DIRTY 个未提交改动（代码是 rsync 上来的，属正常）"
+    [[ "$DIRTY" == "0" ]] && ok "git 干净（${SHA}）" || warn "有 $DIRTY 个未提交改动（代码是 rsync 上来的，属正常）"
   fi
 else
   warn "不是 git 仓库（用 rsync 部署的机器正常）；版本看 .deploy/DEPLOYED.json 的 code_sha256"

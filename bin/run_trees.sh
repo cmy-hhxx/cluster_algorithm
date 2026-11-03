@@ -100,7 +100,7 @@ if [[ $DRY -eq 0 ]]; then check_gateways || exit $?; fi
 ROWS=$(python3 bin/discover_trees.py --channel "$CH" \
   ${WENCAI_ROOT:+--wencai-root "$WENCAI_ROOT"} \
   ${AIME_ROOT:+--aime-root "$AIME_ROOT"} \
-  --staging "$WORK/_src") || { echo "树发现失败（channel=$CH，WENCAI_ROOT=${WENCAI_ROOT:-未设}，AIME_ROOT=${AIME_ROOT:-未设}）" >&2; exit 3; }
+  --staging "$WORK/_src") || { echo "树发现失败（channel=${CH}，WENCAI_ROOT=${WENCAI_ROOT:-未设}，AIME_ROOT=${AIME_ROOT:-未设}）" >&2; exit 3; }
 
 selected() { [[ -z "$ONLY" ]] && return 0; [[ ",$ONLY," == *",$1,"* ]]; }
 baseline() {
@@ -185,7 +185,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   if [[ $DELIVER -eq 1 ]]; then
     mkdir -p "$deliver"
     cp "$out"/* "$deliver"/
-    echo "  交付：$deliver（$(ls -1 "$deliver" | wc -l | tr -d ' ') 个文件）"
+    echo "  交付：${deliver}（$(ls -1 "$deliver" | wc -l | tr -d ' ') 个文件）"
   fi
   echo "  结果：$n 条，$v"
   ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v"
@@ -195,14 +195,14 @@ while IFS= read -r row; do
   [[ -n "$row" ]] || continue
   IFS=$'\t' read -r t ch src deliver srcroot <<< "$row"
   selected "$t" || continue
-  if [[ ! -d "$src" ]]; then echo "跳过 $t：输入目录不存在 $src"; continue; fi
+  if [[ ! -d "$src" ]]; then echo "跳过 ${t}：输入目录不存在 $src"; continue; fi
   run_tree "$t" "$src" "$deliver" "$srcroot"
 done <<< "$ROWS"
 
 echo
 if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
   if [[ -n "${CASE_INDEX_ROOT:-}" ]]; then
-    echo "重建 bad_case 索引（渠道 $CH）..."
+    echo "重建 bad_case 索引（渠道 ${CH}）..."
     python3 bin/build_case_index.py --channel "$CH" --out "$CASE_INDEX_ROOT" \
       ${WENCAI_ROOT:+--wencai-root "$WENCAI_ROOT"} \
       ${AIME_ROOT:+--aime-root "$AIME_ROOT"} 2>&1 | sed 's/^/  /' || \

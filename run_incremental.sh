@@ -19,7 +19,7 @@ BASE="$HERE/runs/incremental/$GROUP"
 BATCH="$BASE/batches/$LABEL/run"
 
 if [ -d "$BATCH" ]; then
-  echo "批次 $LABEL 已存在：$BATCH（换个标签，或先确认是不是重复投放）" >&2
+  echo "批次 $LABEL 已存在：${BATCH}（换个标签，或先确认是不是重复投放）" >&2
   exit 1
 fi
 if ! ls "$BASE"/batches/*/run/items.jsonl >/dev/null 2>&1; then
