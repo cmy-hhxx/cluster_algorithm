@@ -523,9 +523,18 @@ def cmd_verify(a):
             if sum(x['count'] for x in l2['children']) != l2['count']:
                 errs.append(f"{l2['id']} sum mismatch")
             for l3 in l2['children']:
-                if 'children' in l3 and sum(x['count'] for x in l3['children']) != l3['count']:
-                    errs.append(f"{l3['id']} sum mismatch")
-                seen[l3['id']] += l3['count']
+                kids = l3.get('children') or []
+                if kids:
+                    ksum = sum(x['count'] for x in kids)
+                    if ksum > l3['count']:
+                        errs.append(f"{l3['id']} children exceed parent ({ksum} > {l3['count']})")
+                    for c in kids:
+                        seen[c['id']] += c['count']
+                    # 没下钻到 L4 的那部分条目仍然计在 L3 上（item_index 里就是 3 段 path）
+                    if l3['count'] - ksum:
+                        seen[l3['id']] += l3['count'] - ksum
+                else:
+                    seen[l3['id']] += l3['count']
                 if not l3['samples']:
                     errs.append(f"{l3['id']} no samples")
     if sum(x['count'] for x in tree['tree']['children']) != total:
