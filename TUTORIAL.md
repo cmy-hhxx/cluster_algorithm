@@ -27,13 +27,16 @@
 
 模型网关（`interactive-*`）只有内网可达，所以真正的聚类在服务器上跑；本机只负责发起和看结果。
 
+聚类按渠道拆在两台机器上（乌兰 = 问财，弗吉尼亚 = AIME），各自的数据根见 [DEPLOY.md](DEPLOY.md) §0。
+
 在这台 DSH 里说：
 
 ```
-把 /mnt/fin_bench/sync_datasets/datasets/<批次>/attribution.jsonl 聚一下
+把问财这批聚一下          # → 乌兰 eval_data，根 <...>/0_wencai/eval_output
+把 AIME 这批聚一下        # → 弗吉尼亚 aime_rsi_data，根 <...>/1_aime/eval_output
 ```
 
-我会在服务器上执行 `run_cluster.sh`（见 §2），跑完把 9 个文件和三个数给你。
+我会在对应机器上执行 `bin/run_trees.sh`（见 §2），跑完把 12 个文件和三个数给你。
 
 背后的动作：
 
@@ -49,20 +52,28 @@
 ## 2. 自己跑（在服务器上，分步）
 
 ```bash
-ssh -p 3929 -i <key> root@117.50.195.94
-cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
+ssh eval_data            # 问财（乌兰）；AIME 用 ssh aime_rsi_data
+cd /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm    # 弗吉尼亚是 /mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm
 tmux new -s cluster
+source .deploy/env.sh    # 必须有：渠道根、网关、字体、PATH 都在里面
+bin/preflight.sh         # 8 项预检：OK / BLOCKED（等外部条件）/ FAIL
 
-# 一条命令跑完（推荐）
-./run_cluster.sh /mnt/fin_bench/sync_datasets/datasets/<批次>/attribution.jsonl \
-  runs/<批次>/run runs/<批次>/out [全量会话数] [cases 目录]
+# 一条命令跑完（推荐）：自动发现本渠道的所有树
+bin/run_trees.sh
+
+# 只跑一棵 / 只看不归类
+bin/run_trees.sh --only wencai_a_fast
+bin/run_trees.sh --dry-run
+
+# 单文件临时跑一棵（调脚本用）
+./run_cluster.sh /path/to/attribution.jsonl runs/<批次>/run runs/<批次>/out [全量会话数] [cases 目录]
 
 # 手动分步（调试用）
 ./run.sh init /path/to/attribution.jsonl ./run /path/to/eval_session_inputs
 #    → run/items.jsonl  run/locators.jsonl  run/assign/*.jsonl  run/assign/manifest.json
 
 # ② 归类（直调网关；快速用 none，对外交付用 low）
-./run.sh classify ./run --concurrency 24 --effort none
+./run.sh classify ./run --concurrency 12 --effort none
 #    产出：run/assign/<chunk>.out.jsonl  每行 {"seq":1,"path":"S1.M2.1","edge":false}
 
 # ③ 聚合 + 校验 + 报告

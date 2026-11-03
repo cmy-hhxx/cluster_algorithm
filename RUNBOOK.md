@@ -1,16 +1,20 @@
 # RUNBOOK：收到「帮我聚类」指令后我做什么
 
-用户只需给：**attribution.jsonl（或每天一个 jsonl 的目录）**。下面是我在 DSH 里执行的固定流程。
+用户只需给：**哪批数据（问财 / AIME）**。数据落在哪台机器上、根目录是什么，见 [DEPLOY.md](DEPLOY.md) §0 的差异表。
+
+**第一件事是认渠道**：问财（乌兰 `eval_data`）/ AIME（弗吉尼亚 `aime_rsi_data`）。跨渠道的数据不合并、不对比，
+`bad_case_id` 的哈希里带渠道，两台机器各自只写自己的数据根和索引。
 
 ## 0. 参数
 
 | 变量 | 取值 |
 |---|---|
-| `SRC` | 用户给的 jsonl / 目录 |
+| 机器 / 渠道 | 问财 → 乌兰；AIME → 弗吉尼亚（`CLUSTER_CHANNEL` 由 `.deploy/env.sh` 定） |
+| `SRC` | 用户给的 jsonl / 目录（批量跑时由 `bin/discover_trees.py` 自动发现，不用手填） |
 | `CASES` | 可选，`eval_session_inputs` 目录，用于补 `case_id` 与问题原文 |
 | `RUN` | 运行目录，如 `<输出目录>/run` |
 | `OUT` | 交付目录，如 `<输出目录>` |
-| 并发 | 默认 24；按网关容量调，**不要超过 32** |
+| 并发 | 乌兰 12（8 核 / 16 GiB）、弗吉尼亚 8（6 核 / 64 GiB）；**不要超过 32** |
 | 分片 | 200 条/片，按环节分组，跨环节不混片 |
 | 精度 | `CLUSTER_REASONING=none`（默认，快）/ `low`（准，慢 5–6 倍） |
 
@@ -35,7 +39,8 @@ CLUSTER_REASONING=none ./run.sh classify $RUN --concurrency 24
 - 产出 `$RUN/assign/<chunk>.out.jsonl`，每行 `{seq, path, edge}`。
 - 需要可靠的边界标记时加 `--consensus 2`（成本约 ×2，用两次分歧标 `edge`）。
 
-> **本地跑不了这一步**（本机连不到 `interactive-*:5001`，`classify.py` 直接失败）。本地做法是派 DSH 子代理逐片判：每片给 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md`，8–12 并发，产出同样是 `assign/<chunk>.out.jsonl`。口径不变，只是慢。切换与前提见 [DEPLOY.md](DEPLOY.md) §4.0。
+> 网关没开通的机器（当前是弗吉尼亚）跑到这一步会失败，但 `bin/run_trees.sh` 在开跑前就会查网关并直接退 3，不会浪费几分钟。
+> 本地联调跑不了这一步（本机连不到内网网关），替代做法是派 DSH 子代理逐片判：每片给 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md`，8–12 并发，产出同样是 `assign/<chunk>.out.jsonl`。口径不变，只是慢。见 [DEPLOY.md](DEPLOY.md) §3。
 
 ## 3. 聚合与校验（确定性，秒级）
 

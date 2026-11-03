@@ -1,440 +1,340 @@
-# 部署与运行手册
+# 部署与运行手册（双机：乌兰 = 问财 / 弗吉尼亚 = AIME）
 
-这套东西有**两种跑法**，分类法、提示词、交付物完全一致，只有「归类那一步由谁执行」不同：
+聚类按**渠道**拆到两台机器上跑，一台只跑自己那个渠道、只写自己的数据根：
 
 ```
-① 服务器（正式口径）
-   本地改代码 → git push 内网仓库 → 服务器 ./deploy.sh 拉取
-   → run_cluster.sh：init → classify（bin/classify.py 直调网关，24–32 并发）→ finish
-
-② 本地（2026-11-01 这几轮的实际做法，见 §4.0）
-   run.sh init → 归类改由 DSH 子代理直判（本机连不上 interactive-*:5001 网关）→ run.sh finish
+                  本机（Mac，唯一中转）
+                /                        \
+      ./deploy_local.sh wencai     ./deploy_local.sh aime
+                ↓                          ↓
+      乌兰察布 eval_data          弗吉尼亚 aime_rsi_data
+      117.50.195.94:2834          10.217.219.2:2225
+      interactive-i6piqwvlnsr5    interactive-npasm9ch66eb
+      问财渠道（4 + 6 棵树）       AIME 渠道（2 棵树，日常 + 流失合并）
+      网关：两个内网 vLLM 通        网关：暂无（留空，等开通）
+      8 核 / 16 GiB               6 核 / 64 GiB
 ```
 
-服务器只拉取、只运行，**不要在服务器上改代码**（`deploy.sh` 会因工作区有改动直接停下）。
-本地能跑只是为了出数与联调，口径必须与服务器一致：同一份 `taxonomy/`、同一份 `prompts/`。
-**切回服务器时第一件事是核对分类法版本**（`python3 bin/taxonomy_lint.py` 必须 `errors=0`），原因见 §4.0。
+三条硬事实决定了下面几乎所有做法：
+
+1. **代码不走 git 下发**：乌兰能到内网仓库，弗吉尼亚到内网完全不通（117.50.195.94 全端口 timeout），所以两台统一由本机 rsync 上去，版本一致性靠 `.deploy/DEPLOYED.json` 里的代码指纹。
+2. **两台机器之间不互通**：乌兰 → 10.217.219.2 不通，弗吉尼亚 → 117.50.195.94 不通。跨机器的任何动作（传代码、搬基线）都必须经过本机。
+3. **两台机器的环境不一样**：乌兰是"旧容器同款 ceph 存储换了个入口"（代码/基线/产物都还在），弗吉尼亚是全新容器（从零装）。资源配额也不同，并发必须分开定。
 
 ---
 
-## 1. 环境事实
+## 0. 两台机器的差异对照
 
-| 项 | 值 |
-|---|---|
-| 服务器 | `117.50.195.94:3929`，root，key 认证（见 `.servers.conf`） |
-| 代码目录 | `/mnt/fin_bench/sync_datasets/code/2_cluster_algorithm` |
-| 数据目录 | `/mnt/fin_bench/sync_datasets/datasets` |
-| 仓库 | `ssh://git@interactive-n01laf763gwn:22/chenmingyang2/cluster_algorithm.git`（Forgejo） |
-| 规格 | 16 核 / 约 2TB 内存（cgroup 上限 120GiB）/ 无 swap |
-| 内核 | 5.4（**没有 Landlock**），容器内**没有 `CAP_SYS_ADMIN`** |
-| 存储 | `sync_datasets` 是 **ceph-fuse** 网络盘；`/`、`/opt`、`/tmp` 是本地盘 |
-| 运行时 | node 24.14 / npm 11 / python 3.12 / tmux |
-| 代理 | 全局 `HTTP_PROXY`/`HTTPS_PROXY` 指向公司 squid |
-
-后四条决定了下面几乎所有的"为什么"。**ceph-fuse 慢、没有 CAP_SYS_ADMIN、有全局代理**——这三件事各踩过一次坑。
-
----
-
-## 2. 目录布局
-
-| 路径 | 用途 | 入库 |
+| 项 | 乌兰（问财） | 弗吉尼亚（AIME） |
 |---|---|---|
-| `.`（仓库根） | main 分支 checkout | 是 |
-| `skill/SKILL.md` | skill 定义（DSH 从这里读） | 是 |
-| `run_cluster.sh` | 服务器上跑一次聚类的入口 | 是 |
-| `deploy.sh` | 服务器拉取 + 冒烟 | 是 |
-| `.deploy/git-readonly(.pub)` | 仓库级**只读**部署密钥 | 否 |
-| `.deploy/git-known-hosts` | 固定主机指纹 | 否 |
-| `.deploy/fonts/wqy-zenhei.ttc` | 中文字体（服务器没有 CJK 字体） | 否 |
-| `.deploy/env.sh` | PATH / 字体 / DSH_HOME / NO_PROXY | 否 |
-| `.deploy/dsh-home/` | DSH 配置与会话（`DSH_HOME`） | 否 |
-| `.venv/` | Python 3.12 + Pillow | 否 |
-| `runs/` | 聚类产物 | 否 |
-| `/opt/dsh/` | DSH 安装（**本地盘**） | 否 |
-| `~/.agents/skills/attribution-cluster` | 指向 `skill/` 的软链 | 否 |
+| 渠道 `CLUSTER_CHANNEL` | `wencai` | `aime` |
+| SSH（`~/.ssh/config`） | `eval_data` | `aime_rsi_data` |
+| 容器名 | `interactive-i6piqwvlnsr5` | `interactive-npasm9ch66eb` |
+| 代码目录 | `/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm` | `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm` |
+| 数据根 `*_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output` | `/mnt/fin_bench/aime_rsi_data/1_aime/eval_output` |
+| 索引目录 `CASE_INDEX_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets` | `/mnt/fin_bench/aime_rsi_data` |
+| Python venv | 仓库内 `.venv`（历史遗留，能用就不动） | `/opt/cluster-venv`（本地盘，ceph 上装 site-packages 极慢） |
+| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | **空**（等开通） |
+| 并发 `CLUSTER_CONCURRENCY` | 12 | 8 |
+| 容器配额 | 8 核 / 16 GiB / 无 swap | 6 核 / 64 GiB / 无 swap |
+| 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | 独立 ceph-fuse，`/mnt/fin_bench/aime_rsi_data` |
+| 公网 | pypi 不通（DNS 只给 IPv6），tuna/aliyun 通 | pypi / aliyun / github 都通 |
+| 部署 | `./deploy_local.sh wencai` | `./deploy_local.sh aime` |
 
 ---
 
-## 3. 日常开发与发布
+## 1. 渠道、树与数据清单
 
-```bash
-# 本地
-git commit -am "..." && git push origin main
+树**不再写死在代码里**，由 `bin/discover_trees.py` 扫目录自动发现，新增 model 自动进树。
 
-# 服务器
-ssh cluster_agent_server 'cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm && ./deploy.sh'
-```
-
-`deploy.sh` 做三件事：`git fetch` → `git merge --ff-only` → 跑 `tests/smoke.sh`。只接受快进合并；服务器和远端一旦分叉就停下，不会自动 merge。
-
-冒烟通过的标准输出：
-
-```
-leaves=3 total=3 locator_mismatch=0 errors=0
-SMOKE OK
-updated to <sha>
-```
-
----
-
-## 4. 在服务器上跑聚类
-
-### 4.0 现状：先在本地跑通了，正式要上服务器
-
-**这批为什么在本地跑**
-
-- 本机连不上归类网关：`interactive-djahh4fczrhq:5001` 解析不到（NXDOMAIN），经 `127.0.0.1:7897` 代理也是 502，`bin/classify.py` 不可用；
-- 本机没有 `.deploy/env.sh`，`run_cluster.sh` 在 `source` 那一步就失败；
-- 于是本地改成：`run.sh init` → DSH 子代理按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` 逐片归类（并发 8–12）→ `run.sh finish`。
-
-**本地实测（2026-11-01，v4.1 12 段口径）**
-
-| 批次 | 条目 | 分片 | 耗时（每批 12 片并行） |
+| 渠道 | 树名 | 输入 | 交付 |
 |---|---|---|---|
-| 6 棵树全量 | 2,640 | 75 | ≈20 min（7 批） |
-| 6 棵树增量 | 1,136 | 54 | ≈10 min（5 批） |
+| 问财 | `wencai_<model>` | `<WENCAI_ROOT>/0_daily_eval/<model>/` | `<组目录>/cluster/<model>/` |
+| 问财 | `wencai_<model>` | `<WENCAI_ROOT>/1_task_eval/0_search_eval/<model>/` | 同上（在 `0_search_eval/cluster/`） |
+| AIME | `<model>`（如 `aime_fast`） | `<AIME_ROOT>/{0_daily_eval,1_lost_user_eval}/<model>/` 合成一棵 | `<AIME_ROOT>/cluster/<model>/` |
 
-服务器 `classify.py` 同样的量约 1 分钟（实测 4,700 条/分）。**差的只是速度，不是口径**——分类法、提示词、交付物、计数口径完全一致。
+扫描规则：`<根>` 下一层的每个目录当一个「组」，组里直接含 `*attribution*.jsonl` 的子目录当一个 model；`0_daily_eval` 这类一层组和 `1_task_eval/0_search_eval` 这类两层组都支持。跳过 `.runs` / `.delivery` / `.archive` / `cluster` / `comparison` / `criteria` 等非归因目录。
 
-**上服务器前逐项确认**
+**乌兰（问财）实况**
 
-| 项 | 怎么查 | 通过标准 |
-|---|---|---|
-| 分类法版本 | `python3 bin/taxonomy_lint.py` | `errors=0`，且 `VERSION.json` >= 4.1（当前 4.2.0：12 段 / 171 叶） |
-| 网关可达 | `curl -s -o /dev/null -w '%{http_code}\n' $CLUSTER_GATEWAYS/models` | 200 |
-| `.deploy/env.sh` | `ls .deploy/env.sh` | 存在且能 `source`（本地缺的就是这个） |
-| API key | `echo $EVAL_GATEWAY_API_KEY` | 内网网关默认 `dummy` 可用 |
-| 中文字体 | `fc-list :lang=zh` 或设 `CLUSTER_CHART_FONT` | chart 用 PIL 画，缺字体图上是方框 |
-| 并发 | `CLUSTER_CONCURRENCY` | 24–32，别超 32 |
+| 组 | 树 | attribution | 现状 |
+|---|---|---|---|
+| `0_daily_eval` | `a_fast` / `a_expert` / `b_fast` / `b_expert` | 851 / 817 / 815 / 816 行，2026-10-01 单日 | 已有 `cluster/`：1393 / 2077 / 1702 / 2727 条，verify 全 0 错 |
+| `1_task_eval/0_search_eval` | 6 个 `aa-*` search model | 208–340 行，2026-10-30 | **零产物**（2026-11-03 才纳入树表） |
 
-**一键跑（推荐）**
+`comparison/`（7 组两两模型对比）和 `criteria/`（判据表）不是归因数据，不参与聚类。
 
-```bash
-cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
-tmux new -s cluster
-bin/preflight.sh /mnt/fin_bench/sync_datasets/datasets        # 7 项预检，任一 FAIL 就别开跑
-bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets        # 6 棵树全量
-bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets --incremental   # 新数据并入既有 6 棵树
-bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets --only aime_expert   # 只跑一棵
-```
+**弗吉尼亚（AIME）实况**：磁盘上 `1_aime/eval_output/` 是空目录，归因数据在 `0_zip_data/` 的 3 个 `tar.zst` 里（`aime_input_output_20261103.tar.zst` 最全，含 `eval_input` + `eval_output/{0_daily_eval,1_lost_user_eval,cluster}`）。数据由需求方搬到位后再跑，本仓库不负责解包（机器上有 `zstd`，真要解包用 `tar --zstd -xf`）。
 
-`bin/run_trees.sh` 会把 AIME 的「日常 + 流失」软链到 `runs/_src/<树>/{daily,lost}/`（`ingest` 只吃单个目录），逐棵跑完 `init → classify → finish → make_src_map`，再把 12 个文件拷进 `cluster/<model>/`。
-
-**手工分步（排错用）**
-
-```bash
-./run_cluster.sh <输入 jsonl 或目录> <run_dir> <out_dir> [全量会话数] [cases 目录]
-```
-
-**增量（不要全量重跑）**
-
-```bash
-python3 bin/cluster.py ingest --input <数据目录> --out runs/<树>/run_new
-python3 bin/make_delta.py --old runs/<树>/run_merged --new runs/<树>/run_new --out runs/<树>/run_delta
-python3 bin/cluster.py chunk --work runs/<树>/run_delta --size 60
-./run.sh classify runs/<树>/run_delta --concurrency 24
-python3 bin/merge_runs.py --out runs/<树>/run_next runs/<树>/run_merged runs/<树>/run_delta
-./run.sh finish runs/<树>/run_next <out_dir> 0 <src_root>
-mv runs/<树>/run_next runs/<树>/run_merged          # 基线前移，下次增量从这里比
-```
-
-- **基线**是 `runs/<树>/run_merged`（跑过增量后）或 `runs/<树>/run`（只跑过全量），每棵树只有一个。
-- 去重键 `(session_id, trace_id, json_path)`：已判过的条目**不会重判**，只判 `run_delta` 里的新增条目；重复记录被丢弃，数量写进 `run_delta/stats.json` 的 `already_known`。
-- 关键在只对 `run_delta` 跑 `chunk` + `classify`，整棵树不参与。`--dry-run` 一律写 `runs/<树>/run_dry`，不会碰基线。
-
-**把已有基线搬到另一台机器（想在服务器上做增量，必须搬）**
-
-`runs/` 在 `.gitignore` 里，服务器上拉代码不会有基线。没有基线就只能全量重跑（等于重开一版，叶子归属会随执行器变化）。
-
-```bash
-# 本机打包（当前 6 棵树约 3.7MB）
-tar czf runs/_baselines-4.1.2.tar.gz -C runs */run_merged
-
-# 传到服务器并解包
-scp runs/_baselines-4.1.2.tar.gz root@<server>:<repo>/runs/
-ssh root@<server> 'cd <repo> && tar xzf runs/_baselines-4.1.2.tar.gz -C runs'
-
-# 关键一步：把基线里的绝对路径改到服务器上，否则增量合并出的树 verify 会找不到源文件
-python3 bin/rebase_paths.py --run runs \
-  --datasets /mnt/fin_bench/sync_datasets/datasets \
-  --repo /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
-
-wc -l runs/*/run_merged/items.jsonl      # 应与本机一致：211/265/332/378/870/1594
-```
-
-`rebase_paths.py` 只改 `src_path`/`file`，不动判定与 seq，可重复执行（路径已对就是 no-op）。
-
-**bad_case_id 与 bad_case 索引（v4.2 起）**
-
-聚类产物要能按「一次提问」回查用户、定位原始归因输出，并支持之后用同一个 id 重新触发问句做对比。
-
-- `item_index.jsonl` 每条新增 `user_id` / `bad_case_id` / `request_time`；`cluster_tree.json` 的 samples 也带 `bad_case_id`、`user_id`。
-- **id 怎么算**：`bc_wc_<16位>` / `bc_ai_<16位>` = 渠道 + 规范化问句（压掉连续空白）+ **截断到分钟**的 request_time 的 sha256。时间截到分钟是为了吸收跨树跑批的 1–2 秒漂移；渠道进哈希是为了让问财/AIME 不互撞；`question` 或时间缺失时留空，不造无法重放的假 case（本批 188 条属于这种情况）。
-- **粒度**：一个 `bad_case_id` = 一次提问，属于它的多条 problem 条目共享同一个 id。
-- **索引**（按渠道各一份，放 datasets 根）：
-  `bad_case_index_wencai.jsonl` / `bad_case_index_aime.jsonl`，一行一个 case，字段含
-  `bad_case_id / channel / user_id / question / request_time / request_time_iso / item_count / leaf_count / top_leaf_path / top_leaf_name / status / first_seen / last_seen / sources[]`，
-  `sources[]` 里带 `tree / eval_dir / model / file / line / trace_id / session_id`，直接指向原始 attribution 的那一行。
-- **重建**：`bin/build_case_index.py --datasets <D>`（`run_trees.sh` 在所有树跑完后会自动调用）。它会连**0 条 problem 的 case** 一起收进来（来源于逐条扫源文件），所以索引是"这次评测碰到过哪些问句"的全集。
-- **历史数据回填**：`bin/backfill_case_fields.py --run runs/<树>/run_merged [--channel aime]`，回读源记录重算字段、顺带重建 locators，**不重新归类**。AIME 的基线 src_path 指向 `runs/_src/...` 软链，务必显式传 `--channel aime`。
-
-**换机器后的一个坑**：`merge_runs` 会把 `file` / `src_path` 统一写成本机绝对路径，所以 `item_index.jsonl` 里的 `src_file` 在跑批机器上可直接打开、换机器后失效。每次交付都要重跑 `bin/make_src_map.py` 生成 `src_map.json`，它是"相对路径 ↔ 原始文件"的唯一索引。
-
-### 4.1 跑一次
-
-```bash
-cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
-tmux new -s cluster          # 长任务必须放 tmux，否则 SSH 断线就没了
-./run_cluster.sh <输入 jsonl 或目录> <run_dir> <out_dir> [全量会话数] [cases 目录]
-```
-
-`run_cluster.sh` 默认走 **script 引擎**：`init` → `classify`（直调网关，`CLUSTER_REASONING` 选 none/low，默认 none）→ `finish`。只有 `CLUSTER_ENGINE=dsh` 时才用 `dsh --profile headless --json`，事件流写到 `<out_dir>/dsh-<时间>.jsonl`。
-
-看进度和结果：
-
-```bash
-tail -f <out_dir>/dsh-*.jsonl                                  # 实时事件流
-grep '"type":"final"' <out_dir>/dsh-*.jsonl | tail -1          # 最终答复
-grep -o 'leaves=[0-9]* total=[0-9]* locator_mismatch=[0-9]* errors=[0-9]*' <out_dir>/dsh-*.jsonl | tail -1
-```
-
-交付物是 12 个文件：9 个标准件（`cluster_tree.json/txt`、`cluster_summary.md`、`cluster_brief.md`、`cluster_matrix.png`、`item_index.jsonl`、`syndrome.json/md`、`leaves.tsv`、`MANIFEST.json`）加 `verify.json`、`src_map.json`。`MANIFEST.json` 只登记 9 个标准件的校验和。`verify` 必须 `errors=0` 且 `locator_mismatch=0`。
-
-> 时间预期：script 引擎快速模式实测 6,243 条 / 79s（32 并发，约 4,700 条/分），35,000 条约 8 分钟；质量模式约慢 5–6 倍。
-
-### 4.2 DSH 配置
-
-| 项 | 值 |
-|---|---|
-| 版本 | `@deepseek-ai/dsh@0.2.1-rc.4`，装在 `/opt/dsh` |
-| DSH_HOME | `.deploy/dsh-home` |
-| profile | `$DSH_HOME/profiles/headless/cordis.patch.yml` |
-| 模型 | `eval-gw1`（默认）/ `eval-gw2`，`deepseek-v4.1-flash` |
-| 协议 | `openai-responses` |
-| 容量 | `contextWindow: 524288`、`maxTokens: 32768` |
-| 子代理 | `maxActiveSubagents: 32`（DSH 默认 8） |
-| 权限 | 沙箱 `workspace-write` + `approval: never` |
-| 凭据 | `$DSH_HOME/.env` 里 `EVAL_GATEWAY_API_KEY=dummy`（网关不校验 key，随便填） |
-
-profile patch 全文（丢了就照这个重建）：
-
-```yaml
-- id: llm-pi-ai
-  config:
-    providers:
-      eval-gw1:
-        apiKeyEnv: EVAL_GATEWAY_API_KEY
-        api: openai-responses
-        baseURL: http://interactive-s4lvy0mmvu32:5001/v1/
-        models:
-          - id: deepseek-v4.1-flash
-            name: DeepSeek V4.1 Flash
-            contextWindow: 524288
-            maxTokens: 32768
-      eval-gw2:
-        apiKeyEnv: EVAL_GATEWAY_API_KEY
-        api: openai-responses
-        baseURL: http://interactive-djahh4fczrhq:5001/v1/
-        models:
-          - id: deepseek-v4.1-flash
-            name: DeepSeek V4.1 Flash (备用)
-            contextWindow: 524288
-            maxTokens: 32768
-
-- id: agent-default-model
-  config:
-    provider: eval-gw1
-    model: deepseek-v4.1-flash
-
-- id: subagent
-  config:
-    maxActiveSubagents: 32
-
-- id: approval
-  config:
-    policy: never
-- id: permission
-  config:
-    defaultPreset: workspace-write-auto
-    presets:
-      read-only: {sandbox: read-only, approval: ask}
-      workspace-write: {sandbox: workspace-write, approval: ask}
-      workspace-write-auto: {sandbox: workspace-write, approval: never}
-      danger-full-access: {sandbox: danger-full-access, approval: never}
-```
-
-换默认网关：改 `agent-default-model.provider` 为 `eval-gw2` 即可，下一次请求生效。
-
-### 4.3 skill 怎么被加载
-
-DSH 扫 `~/.agents/skills`。服务器上：
-
-```bash
-ln -sfn /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm/skill ~/.agents/skills/attribution-cluster
-```
-
-`SKILL.md` 里写的是"仓库 = 本文件所在目录的上一级"，所以必须通过这个软链，仓库挪了位置也不用改 skill。
-
-验证：
-
-```bash
-cd /mnt/fin_bench/sync_datasets && source code/2_cluster_algorithm/.deploy/env.sh
-dsh --profile headless "只回答：你当前可用的 skill 名称列表"
-# 应输出 attribution-cluster
-```
+**bad_case 索引**：`bin/build_case_index.py --channel <渠道> --out <CASE_INDEX_ROOT>`，一台机器只建自己渠道那一份，不会产出空文件。字段与生成逻辑见 README §4.0。
 
 ---
 
-## 5. 踩过的坑（现象 / 原因 / 处理）
-
-### 5.1 ceph-fuse 上装 node_modules
-
-- **现象**：`npm i @deepseek-ai/dsh` 或 `cp -a node_modules` 在 `/mnt/fin_bench` 下十几分钟写不完。
-- **原因**：`sync_datasets` 是 ceph-fuse，几万个小文件的元数据操作极慢；同一份拷贝到本地盘只要 2 秒。
-- **处理**：DSH 装 `/opt/dsh`，只在 ceph 上放体积小的配置（`DSH_HOME`）。**任何 `node_modules`、`site-packages` 都不要放 `/mnt/fin_bench`。**
-
-### 5.2 全局代理把网关请求拦成 403
-
-- **现象**：headless 报错，正文是 `proxy.ucwlcc.com (squid) ... ERR_ACCESS_DENIED`。
-- **原因**：服务器全局有 `HTTP_PROXY`，请求 `interactive-*` 走了 squid。
-- **处理**：`.deploy/env.sh` 里已设 `NO_PROXY`（含两个网关和 `interactive-n01laf763gwn`）。手工跑 DSH 前记得 `source .deploy/env.sh`。
-
-### 5.3 沙箱后端不可用，所有 bash 调用被拒
-
-- **现象**：agent 一步都跑不了，报
-  `sandbox mode "workspace-write" is requested but no sandbox backend is usable on this host`。
-- **原因**：Linux 上 `workspace-write` 走 bubblewrap；这台容器内核 5.4（无 Landlock）且没有 `CAP_SYS_ADMIN`，bwrap 直接跑会 `Creating new namespace failed: Operation not permitted`。
-- **处理**：装 bubblewrap + 放一个 shim（补 `--unshare-user`、去掉 `--proc`，因为 seccomp 拒绝在 user namespace 里挂 proc）：
+## 2. 代码怎么上去（不用 git）
 
 ```bash
-apt-get install -y bubblewrap
-cat > /usr/local/bin/bwrap <<'EOF'
-#!/usr/bin/env bash
-# 容器没有 CAP_SYS_ADMIN：bwrap 必须自建 user namespace，且 seccomp 拒绝在其中挂 /proc
-args=(); skip=0
-for a in "$@"; do
-  if (( skip )); then skip=0; continue; fi
-  if [[ $a == --proc ]]; then skip=1; continue; fi
-  args+=("$a")
-done
-exec /usr/bin/bwrap --unshare-user "${args[@]}"
-EOF
-chmod 755 /usr/local/bin/bwrap
+# 本机，仓库根
+./deploy_local.sh wencai      # 乌兰：同步代码 + 渲染 env.sh + 远端预检
+./deploy_local.sh aime        # 弗吉尼亚
+./deploy_local.sh wencai --dry-run     # 只看目标/版本/指纹，不传
+./deploy_local.sh aime --no-preflight  # 只同步，不跑预检
 ```
 
-验证：`bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true`。
+它做四件事：
 
-退路是改成 `danger-full-access`（无沙箱、root 全盘可写），不推荐。
+1. 远端建 `{runs,logs,.deploy/fonts}`；
+2. `rsync -a` 同步代码（排除 `.git` / `runs` / `.venv` / `.deploy` / `__pycache__` / `logs`，**不带 `--delete`**——服务器上的 `.deploy`、`runs` 本地没有，删了就是事故）；
+3. 把 `.deploy/env.sh` 按这台机器渲染上去（路径、渠道、网关、并发、`TZ`、`NO_PROXY` 全在这里）；
+4. 写 `.deploy/DEPLOYED.json`（渠道 / 主机 / 版本 / **代码指纹** / 时间 / 数据根），并跑一次远端预检。
 
-### 5.4 rc.4 的 headless 没有 `--permission-mode` / `--approval-policy`
+**怎么确认两台是同一版**：比较两台的 `.deploy/DEPLOYED.json` 里的 `code_sha256`（对 `bin/ taxonomy/ prompts/` 下所有源码文件取哈希）。弗吉尼亚没有 `.git`，这是唯一可靠的版本凭证。
 
-- **现象**：`error: unknown option '--permission-mode'`。
-- **原因**：官网文档跟的是 master，rc.4 的 headless 只有 `--json` 和 `--session-id`；权限只能通过 profile patch 配。
-- **处理**：见 §4.2 里的 `approval` / `permission` 两段。升级到带这两个参数的版本后再改回命令行传参。
+```bash
+ssh eval_data      'cat /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/.deploy/DEPLOYED.json' | grep code_sha256
+ssh aime_rsi_data  'cat /mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm/.deploy/DEPLOYED.json' | grep code_sha256
+```
 
-### 5.5 `permission: composed sandbox and approval defaults match no preset`
+目标机器/路径可以覆盖：在本机建 `.deploy/local.conf`（已 gitignore，无密钥），变量名见 `deploy_local.sh` 头部注释（`WL_*` / `VA_*`）。
 
-- **现象**：启动打一行 warning，`permission` 插件没激活（但任务还能跑）。
-- **原因**：`sandbox=workspace-write` + `approval=never` 这个组合不在预设表里，且没指定 `defaultPreset`。
-- **处理**：`permission.defaultPreset: workspace-write-auto`，并在 `presets` 里补上这个组合（见 §4.2）。
+> `deploy.sh`（服务器自己 `git fetch` 后快进）只在能访问内网仓库的机器上还有意义；乌兰现在也走 rsync，两台口径统一。
 
-### 5.6 DSH 看不到 skill
+---
 
-- **现象**：问 agent 有哪些 skill，答不出来。
-- **原因**：`~/.agents/skills/attribution-cluster` 没建、软链断了，或 `SKILL.md` 不在目标目录里。
-- **处理**：`ls -l ~/.agents/skills/attribution-cluster/` 应能看到 `SKILL.md`；软链目标必须是仓库里的 `skill/` 目录。
+## 3. 跑一次
 
-### 5.7 冒烟测试在服务器上卡死
+```bash
+# 服务器上（两台都一样）
+cd <代码目录>
+source .deploy/env.sh
+tmux new -s cluster           # 长任务必须进 tmux，SSH 断线不会带走
+bin/preflight.sh              # 8 项预检：OK / BLOCKED / FAIL 三种结论
+bin/run_trees.sh              # 跑本渠道的全部树（渠道来自 env.sh）
+```
 
-- **现象**：`deploy.sh` 卡在 `cluster.py verify` 不动。
-- **原因**：`tests/smoke.sh` 原来用 `--src "$ROOT/.."`，`verify` 找不到文件时会递归 glob 整个父目录；在 Mac 上父目录是 Desktop，在服务器上是整个 `code/`（含 0_frontend），直接扫爆。
-- **处理**：已改成 `--src "$ROOT/tests"`（`eeef87f`），直接命中，不触发 glob。
+预检现在分三种结果，退出码只对 FAIL 敏感：
 
-### 5.8 归类自检永远误报 path 非法
+| 结论 | 含义 | 退出码 |
+|---|---|---|
+| `OK` | 这一项没问题 | — |
+| `BLOCKED` | 外部条件没到（网关没开、数据还没搬来），环境本身是对的 → **不许开跑** | 0 |
+| `FAIL` | 环境有问题，必须修 | 1 |
 
-- **现象**：子代理跑 `prompts/01_assign.md` §8 的自检，9 个 INV 文件全部 0 命中。
-- **原因**：正则 `^\| ({{L1}}\.[A-Z0-9.]+) \|` 没考虑 INV 表首列的反引号（实际是 `` | `S3.M3.2` | ``）。
-- **处理**：已改成 `` ^\| `({{L1}}\.[A-Z0-9.]+)` \| ``（`2aaddc8`）。
+所以"环境部署完成"是可验证的：**有 FAIL 就是没装好；只剩 BLOCKED 就是装好了在等外部条件。**
 
-### 5.9 部署密钥 push 被拒
+常用变体：
 
-- **现象**：服务器上 `git push` 报权限错误。
-- **原因**：`.deploy/git-readonly` 是**只读**部署密钥，这是预期行为。
-- **处理**：不用管；服务器只拉不推。
+```bash
+bin/run_trees.sh --only wencai_a_fast            # 只跑一棵
+bin/run_trees.sh --incremental                   # 增量（只判新增条目）
+bin/run_trees.sh --incremental --no-full-fallback # 没基线就报错退 3，绝不悄悄全量
+bin/run_trees.sh --dry-run                       # 只 ingest + chunk，不归类、不碰基线
+bin/run_trees.sh --concurrency 8                 # 临时降并发
+bin/run_trees.sh --channel wencai                # 临时指定渠道（覆盖 env.sh）
+```
 
-### 5.10 SSH 断线把长任务带走
+跑之前 `bin/run_trees.sh` 会自己再查一次网关：**`CLUSTER_GATEWAYS` 为空或一个都不通 → 直接退 3**，不会浪费几分钟跑到 `classify` 才炸。
 
-- **现象**：聚类跑到一半没了。
-- **原因**：任务挂在 SSH 会话下。
-- **处理**：`tmux new -s cluster` 里跑；重连用 `tmux a -t cluster`。事件流已经落盘，断了也能从日志判断进度。
+**基线**：每棵树一个 `runs/<树>/run_merged`（跑过增量）或 `runs/<树>/run`（只跑过全量）。增量只对 `run_delta` 做 chunk+classify，去重键 `(session_id, trace_id, json_path)`，已判过的条目不会重判。
 
-### 5.11 实例重建后 `/opt/dsh` 消失
+**deliver 约定**：`finish` 产出 12 个文件到 `runs/<树>/out`，再整目录拷进交付目录。`MANIFEST.json` 只登记 9 个标准件；`verify.json` 必须 `errors=0` 且 `locator_mismatch=0`。
 
-- **现象**：`dsh: command not found`。
-- **原因**：`/opt` 是容器本地盘，重建即丢；ceph 上的 `.deploy/` 不会丢。
-- **处理**：按 §6 重建。
+---
+
+## 4. 守护进程（**默认不启动**）
+
+两台机器都没有 crontab / systemd（`crontab: command not found`、PID 1 不是 init），所以只能用 tmux 常驻。
+
+```bash
+# 启动（在各自机器上，只跑本渠道）
+tmux new -d -s cluster-incr-wencai "bin/channel_daemon.sh wencai >> logs/incremental-wencai.log 2>&1"
+tmux new -d -s cluster-incr-aime   "bin/channel_daemon.sh aime   >> logs/incremental-aime.log 2>&1"
+tmux new -d -s cluster-watch-wencai "bin/watch_daemon.sh wencai >> logs/watchdog-wencai.log 2>&1"
+tmux new -d -s cluster-watch-aime   "bin/watch_daemon.sh aime   >> logs/watchdog-aime.log 2>&1"
+```
+
+- `bin/channel_daemon.sh <渠道> [间隔秒]`：默认 1800 秒一轮，`--incremental --no-full-fallback`，无新增只写一行 noop；每轮写 `logs/incr_status_<渠道>.json`，失败追加 `logs/failures_<渠道>.log`。**网关为空的机器不刷失败日志**，只写 `blocked-no-gateway`。
+- `bin/watch_daemon.sh <渠道> [检查秒]`：每 5 分钟看 `cluster-incr-<渠道>` 在不在，被 OOM 杀掉就拉起。
+- **要停先停看门狗**，否则主循环 5 分钟内会被拉回来：
+
+```bash
+tmux kill-session -t cluster-watch-wencai; tmux kill-session -t cluster-incr-wencai
+tmux kill-session -t cluster-watch-aime;   tmux kill-session -t cluster-incr-aime
+```
+
+2026-11-03 起两台都**只装不启动**，等通知再开。
+
+---
+
+## 5. 环境初始化（每台机器只做一次）
+
+乌兰是老环境（`.venv`、字体、`.deploy` 都还在，只做校验，别重装）。弗吉尼亚是全新容器，照下面做。
+
+### 5.1 Python（弗吉尼亚：装本地盘，别装 ceph）
+
+```bash
+python3 -m venv /opt/cluster-venv
+/opt/cluster-venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ --upgrade pip
+/opt/cluster-venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ pillow
+/opt/cluster-venv/bin/python -c "import PIL;print(PIL.__version__)"   # 期望 13.0.0
+```
+
+只有 `chart` 需要 Pillow（画 `cluster_matrix.png`），其余都是标准库。
+
+### 5.2 中文字体（服务器没有 CJK 字体，缺了图上全是方框）
+
+```bash
+mkdir -p /tmp/font && cd /tmp/font
+apt-get download fonts-wqy-zenhei
+dpkg-deb -x fonts-wqy-zenhei_*.deb /tmp/font/x
+cp /tmp/font/x/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc <代码目录>/.deploy/fonts/
+```
+
+弗吉尼亚已装好：16,791,251 字节，`sha256 79c18ebe7b81…`，实测 `ImageFont.truetype(...,16)` 可加载且字形不是 `.notdef` 方框。
+
+### 5.3 `env.sh` 与渠道根
+
+**不要手写**，用 `./deploy_local.sh <渠道>` 渲染。它等价于：
+
+```bash
+export PATH="<venv>/bin:$PATH"
+export CLUSTER_CHART_FONT="<代码目录>/.deploy/fonts/wqy-zenhei.ttc"
+export TZ=Asia/Shanghai
+export CLUSTER_CHANNEL=wencai            # 弗吉尼亚是 aime
+export WENCAI_ROOT="<...>/0_wencai/eval_output"   # 另一渠道留空
+export AIME_ROOT="<...>/1_aime/eval_output"
+export CASE_INDEX_ROOT="<索引目录>"
+export CLUSTER_CONCURRENCY=12            # 弗吉尼亚 8
+export CLUSTER_GATEWAYS="<网关或空>"
+export EVAL_GATEWAY_API_KEY=dummy
+export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,localhost,127.0.0.1"
+```
+
+四个必须项，缺一个就会踩坑：
+
+- `PATH` 必须指到带 Pillow 的 venv —— `preflight.sh` / `run.sh` 调的是裸 `python3`；
+- `CLUSTER_CHART_FONT` —— 代码默认值还是 macOS 的 `Hiragino Sans GB.ttc`；
+- `TZ=Asia/Shanghai` —— 两台容器默认 UTC，日志/ledger 时间会和本地差 8 小时，两台之间也对不上；
+- `NO_PROXY` —— 乌兰有全局 `HTTP_PROXY`（`10.240.24.13:3129`），不排除网关会被 squid 拦成 403。
 
 ---
 
 ## 6. 重建清单（实例重建 / 换机器时照做）
 
-```bash
-cd /mnt/fin_bench/sync_datasets/code/2_cluster_algorithm
-
-# 1) Python 运行时
-python3 -m venv .venv && .venv/bin/pip install pillow
-
-# 2) 中文字体（chart 需要）
-mkdir -p .deploy/fonts
-apt-get download fonts-wqy-zenhei && dpkg-deb -x fonts-wqy-zenhei_*.deb /tmp/wqy
-cp /tmp/wqy/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc .deploy/fonts/
-
-# 3) DSH（本地盘）
-mkdir -p /opt/dsh && cd /opt/dsh && npm i --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.4
-
-# 4) 沙箱
-apt-get install -y bubblewrap   # 再按 §5.3 写 /usr/local/bin/bwrap
-
-# 5) 环境变量
-#    .deploy/env.sh 应包含：
-#    PATH（.venv + /opt/dsh/node_modules/.bin）、CLUSTER_CHART_FONT、
-#    DSH_HOME=$D/.deploy/dsh-home、NO_PROXY（两个网关 + interactive-n01laf763gwn）
-
-# 6) DSH 配置
-#    $DSH_HOME/profiles/headless/cordis.patch.yml（见 §4.2）
-#    $DSH_HOME/.env: EVAL_GATEWAY_API_KEY=dummy
-
-# 7) skill
-mkdir -p ~/.agents/skills
-ln -sfn "$PWD/skill" ~/.agents/skills/attribution-cluster
-
-# 8) 代码与部署密钥（.deploy 还在就跳过）
-git init -q
-git remote add origin ssh://git@interactive-n01laf763gwn:22/chenmingyang2/cluster_algorithm.git
-git config core.sshCommand "ssh -F /dev/null -i $PWD/.deploy/git-readonly -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$PWD/.deploy/git-known-hosts -o StrictHostKeyChecking=yes"
-git fetch origin main && git checkout -f -B main origin/main
-```
-
-`.deploy/git-readonly` 丢了就重新生成，把 `.pub` 加到 Forgejo 仓库 `Settings → Deploy keys`（只读）：
+**乌兰（新容器但共享旧 ceph）**
 
 ```bash
-ssh-keygen -q -t ed25519 -N "" -C "ths_cluster_agent readonly" -f .deploy/git-readonly
-ssh-keyscan -p 22 interactive-n01laf763gwn > .deploy/git-known-hosts
+# 1) 先确认仓库还在（code_and_clean_data 与旧容器的 sync_datasets 是同一份 ceph，
+#    旧容器 interactive-m8jqioclnl 与新容器看到的文件 inode 相同）
+ls /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/taxonomy/inventory.json
+# 2) 本机推代码 + env.sh + 预检
+./deploy_local.sh wencai
+# 3) 校验：Pillow 可用、字体存在、两个网关 200
 ```
+
+原来 `sync_datasets` 下的一切（`runs/` 基线、已交付产物）在新容器里都是**同一份文件**，不用搬。
+**旧容器 `interactive-m8jqioclnm20` 已弃用**：它和新乌兰共享同一份 `runs/`，两边同时跑会互相踩锁和复写产物，只在需要考古历史时只读访问。
+
+**弗吉尼亚（全新容器）**
+
+```bash
+# 1) 装环境（§5.1 + §5.2）
+python3 -m venv /opt/cluster-venv && /opt/cluster-venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ pillow
+# 2) 拉代码（本机执行）
+./deploy_local.sh aime
+# 3) 数据到位后确认根下有 attribution 文件
+find /mnt/fin_bench/aime_rsi_data/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
+```
+
+这台机器：`/opt` 与 `/` 都是本地 overlay（重建即丢，venv 重装）；`/mnt/fin_bench/aime_rsi_data` 是 ceph（重建保留）。
 
 ---
 
-## 7. 排错速查
+## 7. 踩过的坑（现象 / 原因 / 处理）
+
+### 7.1 ceph-fuse 上装 node_modules / site-packages
+- **现象**：`npm i` 或 `cp -a node_modules` 在 `/mnt/fin_bench` 下十几分钟写不完。
+- **原因**：ceph-fuse 几万个小文件元数据操作极慢，同一份拷贝到本地盘只要 2 秒。
+- **处理**：venv / `node_modules` 一律放本地盘（弗吉尼亚 `/opt/cluster-venv`）；ceph 上只放代码、配置、产物。乌兰的老 `.venv` 在 ceph 上但已可用，不折腾。
+
+### 7.2 全局代理把网关请求拦成 403
+- **现象**：请求网关报 `proxy.ucwlcc.com (squid) ... ERR_ACCESS_DENIED`。
+- **原因**：乌兰有全局 `HTTP_PROXY`。
+- **处理**：`.deploy/env.sh` 的 `NO_PROXY` 已含两个网关和 `interactive-n01laf763gwn`；`bin/classify.py` 自己用 `ProxyHandler({})`，双保险。
+
+### 7.3 `python3` 没 Pillow（新机器必踩）
+- **现象**：`No module named 'PIL'`，或预检第 6 项 FAIL。
+- **原因**：系统 python3 没装 Pillow，而脚本调的是裸 `python3`。
+- **处理**：`env.sh` 里 `PATH=<venv>/bin:$PATH`；先 `source .deploy/env.sh` 再跑任何脚本。
+
+### 7.4 图表中文变方框
+- **现象**：`cluster_matrix.png` 标题/机制名全是 □。
+- **原因**：服务器没有 CJK 字体，代码默认字体路径是 macOS 的。
+- **处理**：装 `fonts-wqy-zenhei`，`CLUSTER_CHART_FONT` 指过去；预检第 6 项会真加载一次字体来验。
+
+### 7.5 内存/CPU 口径误判
+- **现象**：`free -g` 显示 2 TB，以为能开 32 并发。
+- **原因**：容器里的 `free` 是宿主机视角；真实配额在 cgroup（乌兰 16 GiB / 8 核，弗吉尼亚 64 GiB / 6 核）。
+- **处理**：看 `/sys/fs/cgroup/{memory/memory.limit_in_bytes,cpu/cpu.cfs_quota_us}`；预检第 7 项会读 cgroup 并在并发超过 2×核数时告警。
+
+### 7.6 沙箱脚本模式登记不全
+- **现象**：ingest 报 `unregistered components`。
+- **原因**：数据里出现新工具（`.sh` 脚本、`view_skill`、`pptx` 等）没有登记进 `taxonomy/components.json`。
+- **处理**：`bin/cluster.py` 会把未登记的 raw component 写进 `<run>/unregistered.json` 并中止——按提示登记，别加 catch-all 桶。2026-11-03 全量扫描已 0 阻塞。
+
+### 7.7 换了数据集路径后 `src_map.json` 溯源断裂
+- **现象**：`cluster/<model>/src_map.json` 的 `src_root` 指向一个已经不存在的快照目录。
+- **原因**：基线是旧机器/旧路径下跑的，`merge_runs` 把绝对路径固化进了 `items.jsonl`。
+- **处理**：换路径后先 `bin/rebase_paths.py --run runs --datasets <新根> --repo <新仓库>` 再增量；每次交付都会重跑 `bin/make_src_map.py`。
+
+### 7.8 继承别台的基线会 `verify` 断链
+- **现象**：拿乌兰的 AIME 基线到弗吉尼亚做增量，`verify` 报 `src not found`。
+- **原因**：两台的源数据不是同一批（tar 只到 2026-11-02，乌兰基线含 11-03 的条目），基线引用了本机不存在的文件。
+- **处理**：**基线必须在数据所在地建**。弗吉尼亚用自己的数据全量建一次基线，之后靠增量跟上。
+
+### 7.9 重跑时复用了旧判定
+- **现象**：全量重跑后叶子分布和上次一模一样，快得离谱。
+- **原因**：`classify.py` 见到 `assign/<chunk>.out.jsonl` 且 seq 齐全就跳过；旧文件的 seq 恰好对得上。
+- **处理**：`run_trees.sh` 全量前 `rm -rf runs/<树>/run`，增量前清 `run_delta`（已内建）。
+
+### 7.10 SSH 断线带走长任务
+- **现象**：聚类跑到一半没了。
+- **原因**：任务挂在 SSH 会话下。
+- **处理**：一律 `tmux new -s cluster`；重连 `tmux a -t cluster`。
+
+### 7.11 一个渠道的守护去动了另一个渠道的数据
+- **现象**：乌兰的守护跑到 AIME 树，或反向。
+- **原因**：树表以前写死 6 棵、不分渠道。
+- **处理**：`CLUSTER_CHANNEL` 限定渠道 + 自动发现；乌兰的 `AIME_ROOT` 留空，`--channel wencai` 就只会发现问财的树。**乌兰不再处理 AIME 数据**，留存的 `1_aime` 与 `bad_case_index_aime.jsonl` 是拆分前副本，只读。
+
+### 7.12 `flock` 不存在导致「另一批正在运行」
+- **现象**：本地跑报"另一批聚类正在运行"，其实没有。
+- **原因**：macOS 没 `flock`。
+- **处理**：脚本检测到没有 `flock` 会跳过锁并提示；服务器有 `flock`，正常生效。
+
+---
+
+## 8. 排错速查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `Permission denied (publickey)` | 部署公钥没加 / 加错仓库 | 重新加 deploy key |
-| `Host key verification failed` | `git-known-hosts` 缺失或主机指纹变了 | `ssh-keyscan -p 22 interactive-n01laf763gwn > .deploy/git-known-hosts` |
-| `merge --ff-only` 失败 | 服务器和远端分叉 | 确认服务器没改代码后 `git reset --hard origin/main` |
-| `No module named 'PIL'` | 没加载 venv | `source .deploy/env.sh` |
-| `OSError: cannot open resource` | 字体路径不存在 | 检查 `CLUSTER_CHART_FONT` 和 `.deploy/fonts/` |
+| `BLOCKED CLUSTER_GATEWAYS 为空` | 该机器网关没开通 | 等开通后改 `.deploy/env.sh` 一行，重跑 |
+| `BLOCKED ... 没有 attribution 文件` | 数据还没搬到位 | 等数据；或检查 `*_ROOT` 是否指对 |
+| `No module named 'PIL'` | 没 source env.sh | `source .deploy/env.sh` |
+| `OSError: cannot open resource` | 字体路径不对 | 检查 `CLUSTER_CHART_FONT` 与 `.deploy/fonts/` |
+| 预检第 6 项 FAIL | Pillow 或字体 | 见 §5.1 / §5.2 |
+| `树发现失败` | 渠道根没设 / 目录不存在 | 看 `env.sh` 的 `WENCAI_ROOT`/`AIME_ROOT` |
 | 网关请求 403 / squid 页面 | 走了全局代理 | 确认 `NO_PROXY` 含网关主机名 |
-| `no sandbox backend is usable` | bwrap 没装或 shim 没生效 | 见 §5.3 |
-| `unknown option '--permission-mode'` | rc.4 不支持该参数 | 用 profile patch 配，见 §5.4 |
-| DSH 答不出 skill | 软链缺失/断开 | 见 §5.6 |
-| 冒烟卡在 `verify` | `--src` 指向了巨大目录 | 已在仓库里修好，`./deploy.sh` 拉最新即可 |
+| `Permission denied (publickey)` | SSH key 不对 | 检查 `~/.ssh/config` 里 `eval_data` / `aime_rsi_data` |
+| 远端预检退出码 1 | 有 FAIL | 按输出修；BLOCKED 不会让退出码变 1 |
+| 两台 `code_sha256` 不同 | 有一台没同步 | 两台各跑一次 `./deploy_local.sh <渠道>` |
+| 冒烟卡在 `verify` | `--src` 指到巨大目录 | `tests/smoke.sh` 已固定 `--src tests`，别改回去 |
+
+---
+
+## 9. 每轮操作 checklist
+
+1. 本机 `./deploy_local.sh <渠道>`（有代码改动时）→ 看远端预检结论。
+2. 服务器 `cd <代码目录> && source .deploy/env.sh && bin/preflight.sh` → 不允许 FAIL；有 BLOCKED 就别跑。
+3. `tmux new -s cluster` → `bin/run_trees.sh`。
+4. 看结果：`runs/_runs.jsonl` 最后几行、`runs/<树>/out/verify.json`、交付目录 12 个文件。
+5. 索引：`bin/build_case_index.py --channel <渠道> --out $CASE_INDEX_ROOT`（`run_trees.sh` 结束会自动做）。

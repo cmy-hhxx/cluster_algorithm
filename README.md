@@ -3,7 +3,15 @@
 对一批「流失用户评测归因」问题条目做聚类，产出一棵可下钻、可回溯、可复算的树。
 **输入只有 attribution.jsonl；输出是一组固定文件。**
 
-服务器部署与运行方式见 [DEPLOY.md](DEPLOY.md)；本轮三轮以上优化的实验、取舍与最终指标见 [OPTIMIZATION.md](OPTIMIZATION.md)。
+聚类按**渠道**拆到两台服务器上跑（乌兰 = 问财，弗吉尼亚 = AIME），一台只跑自己那个渠道：
+
+| 文档 | 讲什么 |
+|---|---|
+| 本文 | 方法论：三轴分类法、计数口径、质量协议 |
+| [DEPLOY.md](DEPLOY.md) | 双机部署与运行：拓扑、两台机差异、代码怎么上去、守护进程、踩坑 |
+| [RUNBOOK.md](RUNBOOK.md) | 收到「帮我聚类」后按什么步骤执行 |
+| [TUTORIAL.md](TUTORIAL.md) | 使用教程：最短路径、输出怎么读、怎么召回证据 |
+| [OPTIMIZATION.md](OPTIMIZATION.md) | 三轮以上优化的实验、取舍与最终指标 |
 
 ## 1. 聚类单元
 
@@ -163,11 +171,19 @@ L4 细分  —— 仅对达标的大叶子下钻（§5）
 cluster_algorithm/
 ├── README.md              方法论（本文）
 ├── RUNBOOK.md             执行手册：收到指令后按什么步骤跑
+├── DEPLOY.md              双机部署：乌兰=问财 / 弗吉尼亚=AIME
 ├── run.sh                 init / finish 两个确定性入口
+├── deploy_local.sh        本机 → 服务器的代码传输与环境渲染（不用 git 下发）
 ├── VERSION.json           流水线与分类法版本
 ├── bin/
 │   ├── cluster.py         ingest / chunk / aggregate / verify / report / chart / syndrome / recall
 │   ├── classify.py        批量归类（直调网关；--effort none/low；--consensus N）
+│   ├── discover_trees.py  扫目录发现要聚类的树（渠道 × 输入目录），AIME 顺带做日常+流失 staging
+│   ├── run_trees.sh       按渠道跑全量/增量 → 交付 → 重建索引
+│   ├── build_case_index.py  按渠道生成 bad_case 索引
+│   ├── channel_daemon.sh  单渠道增量常驻循环（tmux）
+│   ├── watch_daemon.sh    看门狗：主循环被 OOM 杀掉时拉起
+│   ├── preflight.sh       开跑前预检（OK / BLOCKED / FAIL）
 │   ├── export_inventory.py  生成 taxonomy/INV_<L1>.md（给归类员看的判定卡）
 │   ├── taxonomy_lint.py   分类法自检（CI/init 门禁）
 │   ├── taxonomy_fix.py    一次性修复旧口径引用与错误命名
@@ -190,24 +206,28 @@ cluster_algorithm/
 
 ## 13. 怎么触发
 
-在 DSH 里说一句：
+**按渠道，在哪台机器，一条命令。**
 
-> 用 cluster_algorithm 聚类：`/path/to/attribution.jsonl`，输出到 `/path/out`
+| 渠道 | 机器 | 命令 |
+|---|---|---|
+| 问财 | 乌兰 `eval_data` | `bin/run_trees.sh`（渠道来自 `.deploy/env.sh` 的 `CLUSTER_CHANNEL=wencai`） |
+| AIME | 弗吉尼亚 `aime_rsi_data` | `bin/run_trees.sh`（`CLUSTER_CHANNEL=aime`） |
 
-我会做：`run.sh init`（含分类法自检）→ 归类 → `run.sh finish` → 报三个数（最大单点 / 最普遍机制 / 诚实刻度）→ 交付 12 个文件。
+树不用手点：`bin/discover_trees.py` 扫 `*_ROOT` 下的 `*attribution*.jsonl` 自动发现，新增 model 自动进树；`--only <树名>` 只跑指定树。跑之前先 `bin/preflight.sh`（`OK`/`BLOCKED`/`FAIL` 三种结论，BLOCKED 表示等外部条件、不许开跑）。完整流程见 [DEPLOY.md](DEPLOY.md) §3。
 
-归类这一步有两种执行方式，口径完全一致（详见 [DEPLOY.md](DEPLOY.md) §4.0）：
+归类由 `bin/classify.py` 直调网关执行（每台机器配自己的网关）：
 
 | 跑在哪 | 归类怎么执行 | 速度 |
 |---|---|---|
-| **服务器（正式）** | `run.sh classify` → `bin/classify.py` 直调网关 | 24–32 并发，约 4,700 条/分 |
-| 本地（2026-11 这几轮） | DSH 子代理逐片判，按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` | 8–12 并发，2,640 条约 25 分钟 |
+| **乌兰（问财，正式）** | `run.sh classify` → `bin/classify.py` 直调两个内网网关 | 12 并发（容器 8 核 / 16 GiB） |
+| **弗吉尼亚（AIME）** | 同上（网关开通后） | 8 并发（容器 6 核 / 64 GiB） |
+| 本地（2026-11 联调） | DSH 子代理逐片判，按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` | 8–12 并发，2,640 条约 25 分钟 |
 
 增量不会全量重跑：新条目先 `ingest → chunk → classify` 到 `run_delta`，再 `merge_runs` 并入既有 run（去重键 `session_id+trace_id+json_path`），最后 `finish`。
 
 不需要你决定任何口径；口径就是这个仓库。速度/精度二选一按下表：
 
-| 模式 | 命令 | 叶子准确率 | 速度（24–32 并发，实测） |
+| 模式 | 命令 | 叶子准确率 | 速度（网关直调，实测） |
 |---|---|---|---|
 | 快速（默认） | `CLUSTER_REASONING=none ./run_cluster.sh ...` | 88.1% | **~4,700 条/分钟**（6,243 条 / 79s，24–32 并发） |
 | 质量 | `CLUSTER_REASONING=low ./run_cluster.sh ...` | **91.3%** | ~300 条/分钟（建议 12–16 并发） |

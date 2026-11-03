@@ -1,57 +1,72 @@
 #!/usr/bin/env bash
-# 6 棵树一键跑（问财日常 4 棵 + AIME 2 棵）。
+# 按渠道跑聚类。渠道、数据根都由环境变量/参数决定，树由目录自动发现。
 #   全量：init → classify → finish → make_src_map → 拷到 <交付目录>
-#   增量：ingest → make_delta（只取未归类）→ chunk → classify → merge → finish → 交付
+#   增量：ingest → make_delta（只取未归类）→ chunk → classify → merge → finish → 交付 → 索引
 #
-# 树与目录（<D> = datasets 根）：
-#   问财日常  <D>/0_wencai/eval_output/0_daily_eval/{a_fast,b_fast,a_expert,b_expert}
-#             交付到 <该 eval 目录>/cluster/<model>/
-#   AIME      <D>/1_aime/eval_output/{0_daily_eval,1_lost_user_eval}/<model>
-#             日常+流失合成一棵树（ingest 只吃单目录，先软链到 runs/_src/<树>/{daily,lost}/）
-#             交付到 <D>/1_aime/eval_output/cluster/<model>/
+# 两个渠道分开跑（2026-11-03 起，各一台机器）：
+#   问财  <WENCAI_ROOT>/<组>/<model>            交付 <组>/cluster/<model>/
+#   AIME  <AIME_ROOT>/{0_daily_eval,1_lost_user_eval}/<model>
+#         日常 + 流失合成一棵树（软链到 runs/_src/<树>/{daily,lost}/，ingest 只吃单目录）
+#         交付 <AIME_ROOT>/cluster/<model>/
+#   其中 WENCAI_ROOT=<...>/0_wencai/eval_output、AIME_ROOT=<...>/1_aime/eval_output。
+#   树由 bin/discover_trees.py 扫目录发现，新增 model 不用改代码。
+#
+# 根怎么定（优先级从高到低）：
+#   1) 环境变量 WENCAI_ROOT / AIME_ROOT / CASE_INDEX_ROOT（写在 .deploy/env.sh 里）
+#   2) 位置参数 <datasets_root>：问财 <DS>/0_wencai/eval_output、AIME <DS>/1_aime/eval_output，
+#      索引写 <DS>（拆分前的单根布局仍可用）
 #
 # 基线约定：每棵树一个「当前全量状态」目录 runs/<树>/run_merged（跑过增量）或 run（只跑过全量）。
-#   增量时若基线不存在 → 自动退回全量（cron 第一次触发就能把基线建好）。
-#'
+#   增量时若基线不存在 → 自动退回全量（--no-full-fallback 则直接报错退 3）。
+#
 # 用法：
-#   bin/run_trees.sh <datasets_root> [--incremental] [--concurrency N] [--only a,b] [--dry-run] [--no-deliver]
+#   bin/run_trees.sh [<datasets_root>] [--incremental] [--concurrency N] [--only a,b]
+#                    [--channel wencai|aime] [--dry-run] [--no-deliver] [--no-full-fallback]
 #
 # 例：
-#   bin/run_trees.sh /mnt/fin_bench/sync_datasets/datasets                        # 8 棵全量
-#   bin/run_trees.sh <D> --only wencai_a_fast,aime_fast_daily                    # 只跑几棵
-#   bin/run_trees.sh <D> --incremental --only aime_fast,aime_expert               # AIME 增量（含新流失）
-#   bin/run_trees.sh <D> --incremental --no-full-fallback --only aime_fast        # 只允许增量，没基线就报错
+#   bin/run_trees.sh                                             # 只跑 .deploy/env.sh 那个渠道的全部树
+#   bin/run_trees.sh --channel aime --incremental --no-full-fallback
+#   bin/run_trees.sh <DS> --channel wencai                       # 兼容旧的单根用法
+#   bin/run_trees.sh --only wencai_a_fast                        # 只跑一棵
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
-# 先加载服务器环境（.deploy/env.sh 把 PATH 指到带 Pillow 的 venv、设 NO_PROXY 与字体）
+# 先加载服务器环境（.deploy/env.sh 设渠道根、网关、字体、PATH、TZ）
 if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 
-DS=${1:?用法: bin/run_trees.sh <datasets_root> [--incremental] [--concurrency N] [--only a,b] [--dry-run] [--no-deliver]}
-shift || true
-INC=0; CONC=${CLUSTER_CONCURRENCY:-24}; ONLY=""; DRY=0; DELIVER=1; NOFULL=0
+DS=""
+if (($#)) && [[ $1 != -* ]]; then DS=$1; shift; fi
+INC=0; CONC=${CLUSTER_CONCURRENCY:-12}; ONLY=""; DRY=0; DELIVER=1; NOFULL=0; CH_FLAG=""
 while (($#)); do
   case "$1" in
     --incremental) INC=1 ;;
     --concurrency) CONC=${2:?}; shift ;;
     --only)        ONLY=${2:?}; shift ;;
+    --channel)     CH_FLAG=${2:?}; shift ;;
     --dry-run)     DRY=1 ;;
     --no-deliver)  DELIVER=0 ;;
     --no-full-fallback) NOFULL=1 ;;
-    -h|--help)     sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help)     sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
   shift
 done
-CONC=${CONC:-24}
+CONC=${CONC:-12}
 (( CONC <= 32 )) || { echo "并发上限 32，当前 $CONC" >&2; exit 2; }
+
+if [[ -n "$DS" ]]; then
+  WENCAI_ROOT=${WENCAI_ROOT:-$DS/0_wencai/eval_output}
+  AIME_ROOT=${AIME_ROOT:-$DS/1_aime/eval_output}
+  CASE_INDEX_ROOT=${CASE_INDEX_ROOT:-$DS}
+fi
+CH=${CH_FLAG:-${CLUSTER_CHANNEL:-auto}}
 
 WORK="$ROOT/runs"
 VER=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])")
 LEDGER="$WORK/_runs.jsonl"
 
-# 同一时刻只允许一批在跑（cron/守护与手动撞车时，后到的直接让路）
+# 同一时刻只允许一批在跑（守护与手动撞车时，后到的直接让路）
 mkdir -p "$WORK"
 if command -v flock >/dev/null 2>&1; then
   exec 9>"$WORK/.lock"
@@ -60,28 +75,32 @@ else
   echo "提示：本机没有 flock，跳过并发锁（仅本地联调会遇到，服务器不触发）" >&2
 fi
 
-W="$DS/0_wencai/eval_output/0_daily_eval"
-A="$DS/1_aime/eval_output"
-
-# AIME：日常 + 流失 两处合成一棵树（ingest 只吃单目录 → 软链到 runs/_src/<树>/{daily,lost}/）
-stage_aime() {  # $1=树名 $2=model 目录名；输出 staging 目录
-  local d="$WORK/_src/$1" f
-  rm -rf "$d"; mkdir -p "$d/daily" "$d/lost"
-  for f in "$A/0_daily_eval/$2"/*attribution*.jsonl; do [[ -e "$f" ]] && ln -sf "$f" "$d/daily/"; done
-  for f in "$A/1_lost_user_eval/$2"/*attribution*.jsonl; do [[ -e "$f" ]] && ln -sf "$f" "$d/lost/"; done
-  echo "$d"
+# 网关是外部依赖：没配 / 一个都连不上就别往下走，省得跑到 classify 才炸
+check_gateways() {
+  if [[ -z "${CLUSTER_GATEWAYS:-}" ]]; then
+    echo "BLOCKED 没有配置归类网关（CLUSTER_GATEWAYS 为空）：环境装好了也跑不了分类。网关开通后只改 .deploy/env.sh。" >&2
+    return 3
+  fi
+  local g code hit=0
+  for g in ${CLUSTER_GATEWAYS//,/ }; do
+    [[ -n "$g" ]] || continue
+    code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' "${g%/}/models" 2>/dev/null || true)
+    echo "  网关 ${g%/}/models -> ${code:-000}"
+    [[ "$code" == "200" ]] && hit=$((hit + 1))
+  done
+  if (( hit == 0 )); then
+    echo "BLOCKED CLUSTER_GATEWAYS 里没有一个可达：$CLUSTER_GATEWAYS" >&2
+    return 3
+  fi
 }
 
-# 树名|输入目录|交付目录|src_root（verify 用的相对根）
-#   问财 ingest 记 file=a_fast/x.jsonl → src_root=0_daily_eval
-#   AIME ingest 记 file=daily/x.jsonl    → src_root=staging 目录
-TREES=()
-TREES+=("wencai_a_fast|$W/a_fast|$W/cluster/a_fast|$W")
-TREES+=("wencai_b_fast|$W/b_fast|$W/cluster/b_fast|$W")
-TREES+=("wencai_a_expert|$W/a_expert|$W/cluster/a_expert|$W")
-TREES+=("wencai_b_expert|$W/b_expert|$W/cluster/b_expert|$W")
-TREES+=("aime_fast|$(stage_aime aime_fast aime_fast)|$A/cluster/aime_fast|$WORK/_src/aime_fast")
-TREES+=("aime_expert|$(stage_aime aime_expert aime_expert)|$A/cluster/aime_expert|$WORK/_src/aime_expert")
+if [[ $DRY -eq 0 ]]; then check_gateways || exit $?; fi
+
+# 树清单：tree<TAB>channel<TAB>src<TAB>deliver<TAB>src_root
+ROWS=$(python3 bin/discover_trees.py --channel "$CH" \
+  ${WENCAI_ROOT:+--wencai-root "$WENCAI_ROOT"} \
+  ${AIME_ROOT:+--aime-root "$AIME_ROOT"} \
+  --staging "$WORK/_src") || { echo "树发现失败（channel=$CH，WENCAI_ROOT=${WENCAI_ROOT:-未设}，AIME_ROOT=${AIME_ROOT:-未设}）" >&2; exit 3; }
 
 selected() { [[ -z "$ONLY" ]] && return 0; [[ ",$ONLY," == *",$1,"* ]]; }
 baseline() {
@@ -92,11 +111,11 @@ baseline() {
 }
 nitems() { if [[ -f "$1/items.jsonl" ]]; then wc -l < "$1/items.jsonl" | tr -d ' '; else echo 0; fi; }
 ledger() {  # $1=树 $2=模式 $3=条目 $4=增量 $5=耗时 $6=校验
-  python3 - "$LEDGER" "$1" "$2" "$3" "$4" "$5" "$6" "$VER" <<'PY'
+  python3 - "$LEDGER" "$1" "$2" "$3" "$4" "$5" "$6" "$VER" "${CH:-unknown}" <<'PY'
 import json, os, sys, datetime
-p, tree, mode, items, delta, elapsed, verify, ver = sys.argv[1:9]
+p, tree, mode, items, delta, elapsed, verify, ver, ch = sys.argv[1:10]
 row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-       "tree": tree, "mode": mode, "items": int(items), "delta": int(delta),
+       "channel": ch, "tree": tree, "mode": mode, "items": int(items), "delta": int(delta),
        "elapsed_s": int(elapsed), "verify": verify, "version": ver}
 with open(p, "a", encoding="utf-8") as fh:
     fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -172,17 +191,24 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v"
 }
 
-for row in "${TREES[@]}"; do
-  t=${row%%|*}; rest=${row#*|}; src=${rest%%|*}; rest=${rest#*|}; deliver=${rest%%|*}; srcroot=${rest#*|}
+while IFS= read -r row; do
+  [[ -n "$row" ]] || continue
+  IFS=$'\t' read -r t ch src deliver srcroot <<< "$row"
   selected "$t" || continue
   if [[ ! -d "$src" ]]; then echo "跳过 $t：输入目录不存在 $src"; continue; fi
   run_tree "$t" "$src" "$deliver" "$srcroot"
-done
+done <<< "$ROWS"
 
 echo
 if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
-  echo "重建 bad_case 索引（按渠道）..."
-  python3 bin/build_case_index.py --datasets "$DS" 2>&1 | sed 's/^/  /' || \
-    echo "  WARN 索引重建失败，但 6 棵树本身已交付（下次跑会重试）"
+  if [[ -n "${CASE_INDEX_ROOT:-}" ]]; then
+    echo "重建 bad_case 索引（渠道 $CH）..."
+    python3 bin/build_case_index.py --channel "$CH" --out "$CASE_INDEX_ROOT" \
+      ${WENCAI_ROOT:+--wencai-root "$WENCAI_ROOT"} \
+      ${AIME_ROOT:+--aime-root "$AIME_ROOT"} 2>&1 | sed 's/^/  /' || \
+      echo "  WARN 索引重建失败，但树本身已交付（下次跑会重试）"
+  else
+    echo "WARN 没有 CASE_INDEX_ROOT，跳过 bad_case 索引重建"
+  fi
 fi
 echo "全部完成。运行记录：$LEDGER"
