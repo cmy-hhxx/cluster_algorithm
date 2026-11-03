@@ -64,7 +64,9 @@
 
 `comparison/`（7 组两两模型对比）和 `criteria/`（判据表）不是归因数据，不参与聚类。
 
-**弗吉尼亚（AIME）实况**：磁盘上 `1_aime/eval_output/` 是空目录，归因数据在 `0_zip_data/` 的 3 个 `tar.zst` 里（`aime_input_output_20261103.tar.zst` 最全，含 `eval_input` + `eval_output/{0_daily_eval,1_lost_user_eval,cluster}`）。数据由需求方搬到位后再跑，本仓库不负责解包（机器上有 `zstd`，真要解包用 `tar --zstd -xf`）。
+**弗吉尼亚（AIME）实况（2026-11-03 21:20 快照）**：`1_aime/eval_output/` 正由需求方搬入——当前 `0_daily_eval` 已到位（`aime_fast` 10 个、`aime_expert` 13 个 attribution），`1_lost_user_eval` 尚未搬、`cluster/` 未生成。原始包在 `0_zip_data/` 的 3 个 `tar.zst` 里（`aime_input_output_20261103.tar.zst` 最全）。
+
+**本仓库不搬数据、不解包**。数据到齐后：预检第 4 项的 `BLOCKED` 会自动变成 `OK`；树发现会自动把 lost 那一路并进同一棵树（AIME 的树名 = model 名，`0_daily_eval` 和 `1_lost_user_eval` 合成一棵），不需要改任何配置。
 
 **bad_case 索引**：`bin/build_case_index.py --channel <渠道> --out <CASE_INDEX_ROOT>`，一台机器只建自己渠道那一份，不会产出空文件。字段与生成逻辑见 README §4.0。
 
@@ -338,3 +340,19 @@ find /mnt/fin_bench/aime_rsi_data/1_aime/eval_output -name '*attribution*.jsonl'
 3. `tmux new -s cluster` → `bin/run_trees.sh`。
 4. 看结果：`runs/_runs.jsonl` 最后几行、`runs/<树>/out/verify.json`、交付目录 12 个文件。
 5. 索引：`bin/build_case_index.py --channel <渠道> --out $CASE_INDEX_ROOT`（`run_trees.sh` 结束会自动做）。
+
+---
+
+## 10. 部署验收记录（2026-11-03 21:20）
+
+| 验收项 | 乌兰（问财） | 弗吉尼亚（AIME） |
+|---|---|---|
+| 代码指纹 `code_sha256` | `b9948aa05e9dd9d5…`（commit `b7cee44`） | `b9948aa05e9dd9d5…`（同 commit，一致 ✅） |
+| `bin/preflight.sh` | 7 项 OK + 1 WARN，**可以开跑** | 6 项 OK + 1 BLOCKED（网关）+ 1 WARN，**环境就绪、不许开跑** |
+| 树发现 | **10 棵**（4 棵 `0_daily_eval` + 6 棵 `1_task_eval/0_search_eval`） | **2 棵**（`aime_fast` / `aime_expert`；lost 未搬，先只 stage daily） |
+| 网关 | 两个内网网关 `/v1/models` 都 200 | 空（等开通）；跑 `run_trees` 立刻退 3，不产生任何产物 |
+| venv / Pillow | 仓库内 `.venv`，Pillow 13.0.0 | `/opt/cluster-venv`，Pillow 13.0.0 |
+| 字体 | `.deploy/fonts/wqy-zenhei.ttc` | 同左，16,791,251 B，`sha256 79c18ebe…` |
+| 配额 / 并发 | 8 核 / 16 GiB / 12 并发 | 6 核 / 64 GiB / 8 并发 |
+| 守护进程 | 未启动（按约定只装不启动） | 未启动 |
+| 已交付产物 | `cluster/` 4 棵树未被本次部署触碰（mtime 仍是 11-02 14:34–14:35） | 无（`cluster/` 未生成） |
