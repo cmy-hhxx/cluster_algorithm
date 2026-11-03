@@ -144,10 +144,15 @@ fi
 
 echo "[8/8] 工作区"
 if [[ -d .git ]]; then
-  DIRTY=$(git status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')
-  [[ "$DIRTY" == "0" ]] && ok "git 干净（$(git rev-parse --short HEAD 2>/dev/null)）" || warn "有 $DIRTY 个未提交改动"
+  SHA=$(git rev-parse --short HEAD 2>/dev/null || true)
+  if [[ -z "$SHA" ]]; then
+    warn "有 .git 但 git 用不了（常见：ceph 上仓库属主与当前用户不同 → dubious ownership）；版本看 .deploy/DEPLOYED.json"
+  else
+    DIRTY=$(git status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$DIRTY" == "0" ]] && ok "git 干净（$SHA）" || warn "有 $DIRTY 个未提交改动（代码是 rsync 上来的，属正常）"
+  fi
 else
-  warn "不是 git 仓库（用 rsync 部署的机器正常，版本看 VERSION.json 和部署时记的 manifest）"
+  warn "不是 git 仓库（用 rsync 部署的机器正常）；版本看 .deploy/DEPLOYED.json 的 code_sha256"
 fi
 
 echo

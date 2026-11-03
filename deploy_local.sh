@@ -58,6 +58,7 @@ VER=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])"
 CODE_SHA=$(find bin taxonomy prompts -type f \( -name '*.py' -o -name '*.sh' -o -name '*.json' -o -name '*.md' \) \
   | sort | xargs shasum -a 256 | shasum -a 256 | awk '{print $1}')
 NOW=$(date '+%Y-%m-%dT%H:%M:%S%z')
+SRC_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 echo "渠道：$CH -> $HOST:$REPO"
 echo "版本：$VER  代码指纹：${CODE_SHA:0:16}  并发：$CONC"
@@ -76,6 +77,8 @@ if (( CODE )); then
     --exclude '.git' --exclude 'runs' --exclude '.venv' --exclude '.deploy' \
     --exclude '__pycache__' --exclude 'experiments/cache' --exclude 'logs' \
     ./ "$HOST:$REPO/"
+  # rsync 不带 --delete（怕删掉服务器上的 .deploy/runs），下线脚本在这里显式清
+  ssh "$HOST" "rm -f '$REPO/bin/incremental_aime.sh'"
 fi
 
 echo
@@ -110,6 +113,7 @@ cat > "$TMP" <<EOF
  "repo": "$REPO",
  "version": "$VER",
  "code_sha256": "$CODE_SHA",
+ "src_commit": "$SRC_SHA",
  "deployed_at": "$NOW",
  "deployed_from": "$(hostname -s)",
  "data_root": "$ROOT",
@@ -127,6 +131,6 @@ if (( PRE )); then
   ssh "$HOST" "cd '$REPO' && bash bin/preflight.sh"
   rc=$?
   set -e
-  echo "预检退出码：$rc（1 = 有 FAIL；0 = 全 OK 或有 BLOCKED）"
+  echo "预检退出码：${rc}（1 = 有 FAIL；0 = 全 OK 或有 BLOCKED）"
   exit "$rc"
 fi
