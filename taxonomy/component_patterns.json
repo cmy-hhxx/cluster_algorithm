@@ -34,10 +34,11 @@
   },
   {
    "id": "sandbox_script",
-   "match": "^/(harness/)?workdir/.*\\.(py|js)$|^/tmp/.*\\.(py|js)$|^/[A-Za-z0-9_./-]+\\.(py|js)$",
+   "match": "^/(harness/)?workdir/.*\\.(py|js|sh|bash)$|^/tmp/.*\\.(py|js|sh|bash)$|^/[A-Za-z0-9_./-]+\\.(py|js|sh|bash)$",
    "tool": "shell",
    "label": "代码解释器（沙箱脚本）",
-   "stage": "S4"
+   "stage": "S4",
+   "note": "沙箱脚本（.py/.js/.sh/.bash）；2026-11-03 补 .sh，AIME Expert 里出现过 fetch_batch.sh / recalc.sh"
   },
   {
    "id": "request_generation",
