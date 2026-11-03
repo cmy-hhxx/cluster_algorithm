@@ -330,6 +330,9 @@ def cmd_aggregate(a):
                 edge.add(r['seq'])
     total = len(assign)
     assert total == len(items), f'assigned {total} items {len(items)}'
+    # 数据截止时间：这批条目里最新的提问时间。上游会原地重写文件，文件 mtime 不可信。
+    cutoffs = [it.get('request_time') or it.get('date') or '' for it in items.values()]
+    data_cutoff = max(cutoffs) if cutoffs else ''
 
     by_path = collections.defaultdict(list)
     for s, p in assign.items():
@@ -466,6 +469,7 @@ def cmd_aggregate(a):
             'total_sessions': len(sessions), 'total_cases': len({i['case_id'] for i in items.values()}),
             'sessions_all': a.sessions_all,
             'depth': 4 if any(len(p.split('.')) == 4 for p in assign.values()) else 3,
+            'data_cutoff': data_cutoff,
             'edge_flagged': len(edge), 'edge_rate': round(len(edge) / max(1, total), 4),
             'axes': {'level_1': '环节：失败发生在链路哪一段（component 决定）',
                      'level_2': '失效机制：动作错在哪一层（7 类统一口径，按 M1→M7 取最早失效点）',
@@ -576,7 +580,8 @@ def write_brief(t, out):
     low = [x for x in leaves if x.get('low_sample')]
     L = ['# 这批问题，最该先修什么', '',
          f"> 数据：{m['total_items']:,} 条问题，来自 {m['total_sessions']:,} 个会话"
-         + (f"（全量 {m['sessions_all']:,} 个）" if m.get('sessions_all') else '') + '。',
+         + (f"（全量 {m['sessions_all']:,} 个）" if m.get('sessions_all') else '')
+         + f"；数据截止 {m.get('data_cutoff') or '未记录'}。", 
          '> 一条问题只归一个类别；排名按会话数，不按条目数，避免“问题多的会话”放大。', '',
          '## 结论', '']
     for i, l3 in enumerate(ranked, 1):
