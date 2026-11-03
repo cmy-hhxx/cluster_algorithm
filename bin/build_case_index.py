@@ -94,6 +94,10 @@ def main():
     trees = scan_trees(ds)
     leaf_name = {n['id']: n['name'] for n in json.load(open(os.path.join(ROOT, 'taxonomy', 'inventory.json'),
                                                             encoding='utf-8'))['nodes']}
+    # L4 下钻后 path 可能是 4 段，名字要从 l4_nodes.json 补
+    l4_path = os.path.join(ROOT, 'taxonomy', 'l4_nodes.json')
+    if os.path.exists(l4_path):
+        leaf_name.update({k: v['name'] for k, v in json.load(open(l4_path, encoding='utf-8')).items()})
 
     orphans = 0
     for (ch, bid), agg in trees.items():
