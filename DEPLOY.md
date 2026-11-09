@@ -452,6 +452,6 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 改动点（对应 commit）：`deploy_local.sh`（新根默认值 + 用 `ssh cat >` 写 env/fingerprint，绕开 scp 间歇断连）、`bin/merge_runs.py`（`file` 固定相对）、`bin/make_src_map.py`（`src_root` 改真实公共根）、`bin/rebase_paths.py`（老基线归一化）、`bin/preflight.sh`（find prune）、`run_cluster.sh`（src 根校验）、`DEPLOY.md`/`README.md`/`RUNBOOK.md`。
 
-> **旧根清理（2026-11-09 20:10 起）**：已删除 `/mnt/fin_bench/aime_rsi_data/1_aime`（数据）与 `code/2_cluster_algorithm`（旧仓库副本，已被 SSD 上的新部署取代）。删前逐项核对：61 个入树 attribution 文件同名同大小、`0_daily_eval`(80)/`1_lost_user_eval`(42)/`2_task_eval`(392)/`eval_input`(362)/`ab_test`(490) 的非隐藏文件数完全一致、`.archive` 36 文件 3.4G 一致。
+> **旧根清理（2026-11-09 20:10 起）**：删除 `/mnt/fin_bench/aime_rsi_data/1_aime`（数据）与 `code/2_cluster_algorithm`（旧仓库副本，已被 SSD 上的新部署取代）。ceph-fuse 上 `.runs`/`.delivery` 小文件很多，`rm` 是后台作业、耗时较长（状态以服务器目录为准）。删前逐项核对：61 个入树 attribution 文件同名同大小、`0_daily_eval`(80)/`1_lost_user_eval`(42)/`2_task_eval`(392)/`eval_input`(362)/`ab_test`(490) 的非隐藏文件数完全一致、`.archive` 36 文件 3.4G 一致。
 >
 > **旧根其余内容没有删**（不是本次聚类迁移，或 SSD 上并不完整）：`code/1_eval_harnes/runtime`（旧 424 文件 / 30G，SSD 只有 15 文件 / 1.4M）、`0_litefusion_data`（2986 vs 482 个非隐藏文件）、`2_test_evals`（6 vs 3）、`_backup`（23G / 556 文件，SSD 无对应）。这些确认可弃后，再 `rm -rf /mnt/fin_bench/aime_rsi_data` 收尾。
