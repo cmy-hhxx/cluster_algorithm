@@ -297,12 +297,18 @@ def cmd_chunk(a):
         rows = sorted(by[l1], key=lambda x: x['seq'])
         for i in range(0, len(rows), a.size):
             part = rows[i:i + a.size]
-            cid = f'{l1}{i // a.size + 1:02d}'
+            cid = f'{l1}_c{i // a.size + 1:03d}'
             with open(os.path.join(outdir, f'{cid}.jsonl'), 'w', encoding='utf-8') as fh:
                 for it in part:
                     fh.write(json.dumps({k2: it[k2] for k2 in ('seq', 'component', 'label', 'definition', 'reason')},
                                         ensure_ascii=False) + '\n')
             manifest.append({'chunk': cid, 'l1': l1, 'n': len(part), 'seqs': [x['seq'] for x in part]})
+    # 分片 id 必须唯一：旧版用 f'{l1}{序号:02d}'，S1 的第 101 片会和 S11 的第 1 片撞成 S1101，
+    # 后写的覆盖先写的（2026-11-09 AIME fast 就因此丢了 200 条判定，finish 断言失败）
+    ids = [m['chunk'] for m in manifest]
+    if len(ids) != len(set(ids)):
+        dup = sorted({c for c in ids if ids.count(c) > 1})
+        sys.exit(f'分片 id 冲突（会互相覆盖）：{dup}')
     jdump(manifest, os.path.join(outdir, 'manifest.json'))
     print(f'chunks={len(manifest)} ' + ' '.join(f'{k}:{v}' for k, v in sorted(collections.Counter(x["l1"] for x in manifest).items())))
     if unknown:
