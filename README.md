@@ -215,7 +215,7 @@ cluster_algorithm/
 | 问财 | 乌兰 `eval_data` | `bin/run_trees.sh`（渠道来自 `.deploy/env.sh` 的 `CLUSTER_CHANNEL=wencai`） |
 | AIME | 弗吉尼亚 `aime_rsi_data` | `bin/run_trees.sh`（`CLUSTER_CHANNEL=aime`） |
 
-> 弗吉尼亚的数据根 2026-11-09 起在 SSD：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`、索引根 `/mnt/aime_eval_ssd`，代码目录 `/mnt/aime_eval_ssd/code/2_cluster_algorithm`；旧根 `/mnt/fin_bench/aime_rsi_data` 已删除。交付物里的 `src_file`/`file` 存相对路径（`daily/xxx.jsonl`），换机器只改数据根，详见 [DEPLOY.md](DEPLOY.md) §0.1 / §12。
+> 弗吉尼亚的数据根 2026-11-09 起在 SSD：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`、索引根 `/mnt/aime_eval_ssd`，代码目录 `/mnt/aime_eval_ssd/code/2_cluster_algorithm`；旧根 `/mnt/fin_bench/aime_rsi_data` 的 `1_aime` 与旧仓副本已删除（其余暂留，见 DEPLOY.md §12）。交付物里的 `src_file`/`file` 存相对路径（`daily/xxx.jsonl`），换机器只改数据根，详见 [DEPLOY.md](DEPLOY.md) §0.1 / §12。
 
 树不用手点：`bin/discover_trees.py` 扫 `*_ROOT` 下的 `*attribution*.jsonl` 自动发现，新增 model 自动进树；`--only <树名>` 只跑指定树。跑之前先 `bin/preflight.sh`（`OK`/`BLOCKED`/`FAIL` 三种结论，BLOCKED 表示等外部条件、不许开跑）。完整流程见 [DEPLOY.md](DEPLOY.md) §3。
 

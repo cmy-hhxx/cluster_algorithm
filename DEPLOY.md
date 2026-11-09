@@ -59,7 +59,7 @@ AIME 的**输入和输出整体迁到 `/mnt/aime_eval_ssd`**，相对结构与�
 | bad_case 索引 | `/mnt/aime_eval_ssd/bad_case_index_aime.jsonl` | `CASE_INDEX_ROOT` 指到 `1_aime` 上一级 |
 | 代码目录 | `/mnt/aime_eval_ssd/code/2_cluster_algorithm` | 2026-11-09 迁入，`deploy_local.sh` 的 `VA_REPO` 默认值 |
 
-旧根 `/mnt/fin_bench/aime_rsi_data`（数据和代码）已在 2026-11-09 **整目录删除**——迁移完成后的唯一位置就是 `/mnt/aime_eval_ssd`，不再保留只读副本。
+旧根 `/mnt/fin_bench/aime_rsi_data` 的 `1_aime`（数据）与 `code/2_cluster_algorithm`（旧仓副本）已在 2026-11-09 删除；迁移完成后的唯一位置就是 `/mnt/aime_eval_ssd`，不再保留只读副本。旧根其余目录因 SSD 上不完整而暂留，清单见 §12。
 
 迁移不影响换机器：`bin/discover_trees.py` 只扫 `AIME_ROOT` 下的 `0_daily_eval/` 与 `1_lost_user_eval/`，`cluster/` 输出永远写回 `<AIME_ROOT>/cluster/`。**改路径只改 `deploy_local.sh` 的 `VA_ROOT` / `VA_INDEX` 默认值**（见 §5.3），不要手改 `.deploy/env.sh`。
 
@@ -416,7 +416,7 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 ## 11. 部署验收记录（2026-11-09 19:31，弗吉尼亚重装 + 网关开通）
 
-> 本节是 19:31 的旧根（`/mnt/fin_bench/aime_rsi_data`）记录；20:00 数据根、20:20 代码目录先后迁到 SSD，旧根已删除，最新状态见 §12。
+> 本节是 19:31 的旧根（`/mnt/fin_bench/aime_rsi_data`）记录；20:00 数据根、20:04 代码目录先后迁到 SSD，旧根的 `1_aime` 与旧仓副本已删除（其余见 §12），最新状态见 §12。
 
 本次只重装了代码与环境，**没有跑聚类**（不覆盖已有 `cluster/`）。
 
@@ -440,8 +440,8 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 | 项 | 结果 |
 |---|---|
-| 数据根 | `AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`，`CASE_INDEX_ROOT=/mnt/aime_eval_ssd`（相对结构不变）；旧根 `/mnt/fin_bench/aime_rsi_data` 只读保留，勿再写入 |
-| 代码/部署 | commit `2e398db`，`code_sha256 ce97575f9860e6c5…`；`./deploy_local.sh aime` 成功（`DEPLOYED.json` 已是新根） |
+| 数据根 | `AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`，`CASE_INDEX_ROOT=/mnt/aime_eval_ssd`（相对结构不变）；旧根 `1_aime` 已删 |
+| 代码/部署 | 2026-11-09 20:04 代码目录迁到 `/mnt/aime_eval_ssd/code/2_cluster_algorithm`，commit `ccdecc6`，`code_sha256 ce97575f9860e6c5…`；`./deploy_local.sh aime` 成功，预检 7 项 OK + 1 WARN |
 | 预检 | 7 项 OK + 1 WARN（非 git 仓库），0 FAIL / 0 BLOCKED；网关 `/v1/models` 200 |
 | 树发现 | 2 棵：`aime_fast`（25 个 attribution）、`aime_expert`（36 个）；交付目标 `<AIME_ROOT>/cluster/<model>/` |
 | 旧 staging | 已清掉 `runs/_src`（旧根软链），下次 `run_trees.sh` 按新根重建 |
@@ -452,4 +452,6 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 改动点（对应 commit）：`deploy_local.sh`（新根默认值 + 用 `ssh cat >` 写 env/fingerprint，绕开 scp 间歇断连）、`bin/merge_runs.py`（`file` 固定相对）、`bin/make_src_map.py`（`src_root` 改真实公共根）、`bin/rebase_paths.py`（老基线归一化）、`bin/preflight.sh`（find prune）、`run_cluster.sh`（src 根校验）、`DEPLOY.md`/`README.md`/`RUNBOOK.md`。
 
-> 未迁项：代码目录仍在 `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm`（旧 mount）。要搬到 `/mnt/aime_eval_ssd/code/2_cluster_algorithm` 只改 `VA_REPO`（那边已有一份 11-03 的旧副本，部署会覆盖）。
+> **旧根清理（2026-11-09 20:10 起）**：已删除 `/mnt/fin_bench/aime_rsi_data/1_aime`（数据）与 `code/2_cluster_algorithm`（旧仓库副本，已被 SSD 上的新部署取代）。删前逐项核对：61 个入树 attribution 文件同名同大小、`0_daily_eval`(80)/`1_lost_user_eval`(42)/`2_task_eval`(392)/`eval_input`(362)/`ab_test`(490) 的非隐藏文件数完全一致、`.archive` 36 文件 3.4G 一致。
+>
+> **旧根其余内容没有删**（不是本次聚类迁移，或 SSD 上并不完整）：`code/1_eval_harnes/runtime`（旧 424 文件 / 30G，SSD 只有 15 文件 / 1.4M）、`0_litefusion_data`（2986 vs 482 个非隐藏文件）、`2_test_evals`（6 vs 3）、`_backup`（23G / 556 文件，SSD 无对应）。这些确认可弃后，再 `rm -rf /mnt/fin_bench/aime_rsi_data` 收尾。
