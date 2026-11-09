@@ -40,7 +40,7 @@ CLUSTER_REASONING=none ./run.sh classify $RUN --concurrency 24
 - 产出 `$RUN/assign/<chunk>.out.jsonl`，每行 `{seq, path, edge}`。
 - 需要可靠的边界标记时加 `--consensus 2`（成本约 ×2，用两次分歧标 `edge`）。
 
-> 网关没开通的机器（当前是弗吉尼亚）跑到这一步会失败，但 `bin/run_trees.sh` 在开跑前就会查网关并直接退 3，不会浪费几分钟。
+> 网关不通的机器跑到这一步会失败，但 `bin/run_trees.sh` 在开跑前就会查网关并直接退 3，不会浪费几分钟（弗吉尼亚网关 2026-11-09 已开通）。
 > 本地联调跑不了这一步（本机连不到内网网关），替代做法是派 DSH 子代理逐片判：每片给 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md`，8–12 并发，产出同样是 `assign/<chunk>.out.jsonl`。口径不变，只是慢。见 [DEPLOY.md](DEPLOY.md) §3。
 
 ## 3. 聚合与校验（确定性，秒级）

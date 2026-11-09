@@ -17,6 +17,17 @@ def load_jsonl(path):
         return [json.loads(l) for l in fh if l.strip()]
 
 
+def rel_file(path):
+    """交付物里只存相对路径：「父目录名/文件名」（daily/xxx.jsonl、lost/xxx.jsonl）。
+
+    绝对路径一旦写进基线，换机器/换挂载点就会失效（2026-11 以前的老问题：交付的
+    item_index/cluster_tree 里全是旧机器的 /mnt/fin_bench/... 绝对路径）。原始绝对路径
+    仍保留在 items.jsonl 的 src_path 里，供 make_src_map.py 生成回放映射。
+    """
+    d, b = os.path.split(path or "")
+    return f"{os.path.basename(d)}/{b}" if d else b
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -59,17 +70,15 @@ def main():
             seq += 1
             seen[key] = seq
             it = dict(it); it["seq"] = seq
-            # locator 统一成绝对路径：相对路径按当前工作目录（仓库根）解析
+            # src_path 统一成绝对路径（相对路径按当前工作目录，即仓库根解析）；file 始终保留相对形式
             sp = it.get("src_path", "")
             if sp and not os.path.isabs(sp):
                 sp = os.path.normpath(os.path.join(os.getcwd(), sp))
                 it["src_path"] = sp
-            if sp:
-                it["file"] = sp
+            it["file"] = rel_file(sp or it.get("file", ""))
             items_out.append(it)
             loc = dict(locs[s]); loc["seq"] = seq
-            if sp:
-                loc["file"] = sp
+            loc["file"] = rel_file(sp or loc.get("file", ""))
             locs_out.append(loc)
             r = assign[s]
             assign_out.append({"seq": seq, "path": r["path"], "edge": bool(r.get("edge", False))})

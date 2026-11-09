@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """把 run 基线里的绝对路径迁移到另一台机器。
 
-为什么需要：merge_runs 会把 items/locators 的 src_path 与 file 统一写成
-跑批机器上的绝对路径。基线搬到服务器后这些路径不存在，增量合并出来的树在
-verify 阶段会找不到源文件（locator_mismatch / src not found）。
+为什么需要：merge_runs 会把 items/locators 的 src_path 写成跑批机器上的绝对路径
+（file 自 2026-11-09 起固定存「父目录名/文件名」的相对形式）。基线搬到服务器后
+src_path 不存在，增量合并出来的树在 verify 阶段会找不到源文件
+（locator_mismatch / src not found）。本工具同时把老基线里 file 的绝对路径压回相对形式。
 
 本工具只改路径，不动任何判定与 seq，可重复执行（路径已对就是 no-op）。
 
@@ -16,6 +17,7 @@ verify 阶段会找不到源文件（locator_mismatch / src not found）。
 规则：
   .../<任意前缀>/datasets/<尾>          -> <datasets>/<尾>
   .../<任意前缀>/runs/_src/<尾>         -> <repo>/runs/_src/<尾>
+  file（交付用）无论原来是什么           -> 「<父目录名>/<文件名>」相对形式
 """
 import argparse, glob, json, os, re, sys
 
@@ -33,6 +35,12 @@ def remap(path, datasets, repo):
         tail = path.split(SRC_MARK, 1)[1]
         return os.path.join(repo, 'runs', '_src', tail)
     return path
+
+
+def rel_file(path):
+    """file 字段固定成「父目录名/文件名」；老基线里的绝对路径也压回这个形式。"""
+    d, b = os.path.split(path or '')
+    return f'{os.path.basename(d)}/{b}' if d else b
 
 
 def main():
@@ -62,6 +70,8 @@ def main():
                 for f in ('src_path', 'file'):
                     if f in r and r[f]:
                         new = remap(r[f], a.datasets, a.repo)
+                        if f == 'file':
+                            new = rel_file(new)
                         if new != r[f]:
                             r[f] = new
                             k += 1

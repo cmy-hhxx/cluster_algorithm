@@ -215,6 +215,8 @@ cluster_algorithm/
 | 问财 | 乌兰 `eval_data` | `bin/run_trees.sh`（渠道来自 `.deploy/env.sh` 的 `CLUSTER_CHANNEL=wencai`） |
 | AIME | 弗吉尼亚 `aime_rsi_data` | `bin/run_trees.sh`（`CLUSTER_CHANNEL=aime`） |
 
+> 弗吉尼亚的数据根 2026-11-09 起在 SSD：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`、索引根 `/mnt/aime_eval_ssd`；旧的 `/mnt/fin_bench/aime_rsi_data` 只读保留。交付物里的 `src_file`/`file` 存相对路径（`daily/xxx.jsonl`），换机器只改数据根，详见 [DEPLOY.md](DEPLOY.md) §0.1 / §12。
+
 树不用手点：`bin/discover_trees.py` 扫 `*_ROOT` 下的 `*attribution*.jsonl` 自动发现，新增 model 自动进树；`--only <树名>` 只跑指定树。跑之前先 `bin/preflight.sh`（`OK`/`BLOCKED`/`FAIL` 三种结论，BLOCKED 表示等外部条件、不许开跑）。完整流程见 [DEPLOY.md](DEPLOY.md) §3。
 
 归类由 `bin/classify.py` 直调网关执行（每台机器配自己的网关）：
@@ -222,7 +224,7 @@ cluster_algorithm/
 | 跑在哪 | 归类怎么执行 | 速度 |
 |---|---|---|
 | **乌兰（问财，正式）** | `run.sh classify` → `bin/classify.py` 直调两个内网网关 | 12 并发（容器 8 核 / 16 GiB） |
-| **弗吉尼亚（AIME）** | 同上（网关开通后） | 8 并发（容器 6 核 / 64 GiB） |
+| **弗吉尼亚（AIME）** | 同上（网关 `http://10.99.116.223:8888/v1`，2026-11-09 开通） | 8 并发（容器 6 核 / 64 GiB） |
 | 本地（2026-11 联调） | DSH 子代理逐片判，按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` | 8–12 并发，2,640 条约 25 分钟 |
 
 增量不会全量重跑：新条目先 `ingest → chunk → classify` 到 `run_delta`，再 `merge_runs` 并入既有 run（去重键 `session_id+trace_id+json_path`），最后 `finish`。

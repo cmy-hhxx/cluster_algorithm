@@ -15,7 +15,8 @@
       117.50.195.94:2834          10.217.219.2:2225
       interactive-i6piqwvlnsr5    interactive-npasm9ch66eb
       问财渠道（4 + 6 棵树）       AIME 渠道（2 棵树，日常 + 流失合并）
-      网关：两个内网 vLLM 通        网关：暂无（留空，等开通）
+      网关：两个内网 vLLM 通        网关：10.99.116.223:8888 通
+      数据：ceph eval_output       数据：SSD /mnt/aime_eval_ssd/1_aime/eval_output
       8 核 / 16 GiB               6 核 / 64 GiB
 ```
 
@@ -37,15 +38,28 @@
 | SSH（`~/.ssh/config`） | `eval_data` | `aime_rsi_data` |
 | 容器名 | `interactive-i6piqwvlnsr5` | `interactive-npasm9ch66eb` |
 | 代码目录 | `/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm` | `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm` |
-| 数据根 `*_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output` | `/mnt/fin_bench/aime_rsi_data/1_aime/eval_output` |
-| 索引目录 `CASE_INDEX_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets` | `/mnt/fin_bench/aime_rsi_data` |
+| 数据根 `*_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output` | **`/mnt/aime_eval_ssd/1_aime/eval_output`**（2026-11-09 起，SSD） |
+| 索引目录 `CASE_INDEX_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets` | **`/mnt/aime_eval_ssd`**（`bad_case_index_aime.jsonl` 落在 `1_aime` 的上一级） |
 | Python venv | 仓库内 `.venv`（历史遗留，能用就不动） | `/opt/cluster-venv`（本地盘，ceph 上装 site-packages 极慢） |
-| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | **空**（等开通） |
+| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | `http://10.99.116.223:8888/v1`（vLLM `deepseek-v4.1-flash`，2026-11-09 开通） |
 | 并发 `CLUSTER_CONCURRENCY` | 12 | 8 |
 | 容器配额 | 8 核 / 16 GiB / 无 swap | 6 核 / 64 GiB / 无 swap |
-| 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | 独立 ceph-fuse，`/mnt/fin_bench/aime_rsi_data` |
+| 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | ceph-fuse 挂到 `/mnt/aime_eval_ssd`（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁来，旧目录只读保留） |
 | 公网 | pypi 不通（DNS 只给 IPv6），tuna/aliyun 通 | pypi / aliyun / github 都通 |
 | 部署 | `./deploy_local.sh wencai` | `./deploy_local.sh aime` |
+
+### 0.1 弗吉尼亚存储布局（2026-11-09 起：数据在 SSD 挂载）
+
+AIME 的**输入和输出整体迁到 `/mnt/aime_eval_ssd`**，相对结构与旧位置完全一致（`1_aime/eval_output/...`），所以代码只认根、不认前缀：
+
+| 用途 | 新路径（SSD） | 旧路径（`/mnt/fin_bench/aime_rsi_data`，只读保留，勿再写入） |
+|---|---|---|
+| 输入根 `AIME_ROOT` | `/mnt/aime_eval_ssd/1_aime/eval_output` | `.../aime_rsi_data/1_aime/eval_output` |
+| 交付 `cluster/<model>/` | `/mnt/aime_eval_ssd/1_aime/eval_output/cluster/<model>/` | 同左（旧树上还有一份 2026-11-09 前的副本） |
+| bad_case 索引 | `/mnt/aime_eval_ssd/bad_case_index_aime.jsonl` | `.../aime_rsi_data/bad_case_index_aime.jsonl` |
+| 代码目录（**未迁**） | `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm` | 同左（仍用旧 mount；以后要搬时只改 `VA_REPO`） |
+
+迁移不影响换机器：`bin/discover_trees.py` 只扫 `AIME_ROOT` 下的 `0_daily_eval/` 与 `1_lost_user_eval/`，`cluster/` 输出永远写回 `<AIME_ROOT>/cluster/`。**改路径只改 `deploy_local.sh` 的 `VA_ROOT` / `VA_INDEX` 默认值**（见 §5.3），不要手改 `.deploy/env.sh`。
 
 ---
 
@@ -70,7 +84,7 @@
 
 `comparison/`（7 组两两模型对比）和 `criteria/`（判据表）不是归因数据，不参与聚类。
 
-**弗吉尼亚（AIME）实况（2026-11-03 21:20 快照）**：`1_aime/eval_output/` 正由需求方搬入——当前 `0_daily_eval` 已到位（`aime_fast` 10 个、`aime_expert` 13 个 attribution），`1_lost_user_eval` 尚未搬、`cluster/` 未生成。原始包在 `0_zip_data/` 的 3 个 `tar.zst` 里（`aime_input_output_20261103.tar.zst` 最全）。
+**弗吉尼亚（AIME）实况（2026-11-09 20:05 快照，数据已迁到 SSD）**：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`，`0_daily_eval`（`aime_fast` / `aime_expert` 各 20 个 attribution）与 `1_lost_user_eval`（fast 5 / expert 16），**真正入树 61 个文件**；`0_daily_eval_atomic-shards/`（c1–c3，fast 12/11/14、expert 14/13/14）与 `2_task_eval/`（`0_lost_user_back_test`）也已搬入，但 AIME 的组名写死在 `bin/discover_trees.py` 的 `AIME_GROUPS = ('0_daily_eval', '1_lost_user_eval')`，**这两个目录不会被读**；预检第 4 项用 `find` 扫全树计数（149 个），比真正入树的 61 个多，别拿它当输入量。`cluster/` 下现有 `aime_fast`（127,041 条 / 188 叶子）与 `aime_expert`（45,614 条 / 178 叶子）的 12 件交付，是**从旧布局（乌兰 `sync_datasets` / `code_and_clean_data`）拷来的历史产物**：`item_index.jsonl` 的 `file` 与 `src_map.json` 里还是旧机器绝对路径，和当前 61 个文件不是同一批数据；本机 `runs/` 也没有基线（只剩 `_src` 软链）。**这些旧产物不做路径修补**——第一次全量跑会直接覆盖它们；自 2026-11-09 起，交付物里的 `src_file` / `file` 一律存相对路径（`daily/xxx.jsonl`），绝对路径只出现在 `src_map.json` 的映射值和 `src_root` 里（见 §12）。
 
 **本仓库不搬数据、不解包**。数据到齐后：预检第 4 项的 `BLOCKED` 会自动变成 `OK`；树发现会自动把 lost 那一路并进同一棵树（AIME 的树名 = model 名，`0_daily_eval` 和 `1_lost_user_eval` 合成一棵），不需要改任何配置。
 
@@ -188,6 +202,21 @@ python3 -m venv /opt/cluster-venv
 
 只有 `chart` 需要 Pillow（画 `cluster_matrix.png`），其余都是标准库。
 
+### 5.1.1 tzdata（镜像里没有，容器重建必补）
+
+这个 pod 的镜像不带 tzdata：`TZ=Asia/Shanghai` 会静默退化成 UTC（`date` 打出 `... Asia`，时间差 8 小时），日志和 `runs/_runs.jsonl` 的 `at` 全错但不报错。
+
+```bash
+apt-get install -y --no-install-recommends tzdata
+TZ=Asia/Shanghai date '+%F %T %Z'        # 期望 ... CST
+```
+
+2026-11-09 实测：apt 下载可能长时间无输出，中断后跑 `dpkg --configure -a` 收尾，`dpkg -l tzdata` 应为 `ii`（tzdata 2026e）。若 apt 完全不可用，可从本机拷一份：
+
+```bash
+scp /usr/share/zoneinfo/Asia/Shanghai aime_rsi_data:/usr/share/zoneinfo/Asia/
+```
+
 ### 5.2 中文字体（服务器没有 CJK 字体，缺了图上全是方框）
 
 ```bash
@@ -209,12 +238,12 @@ export CLUSTER_CHART_FONT="<代码目录>/.deploy/fonts/wqy-zenhei.ttc"
 export TZ=Asia/Shanghai
 export CLUSTER_CHANNEL=wencai            # 弗吉尼亚是 aime
 export WENCAI_ROOT="<...>/0_wencai/eval_output"   # 另一渠道留空
-export AIME_ROOT="<...>/1_aime/eval_output"
-export CASE_INDEX_ROOT="<索引目录>"
+export AIME_ROOT="/mnt/aime_eval_ssd/1_aime/eval_output"   # 2026-11-09 起在 SSD，结构仍是 1_aime/eval_output
+export CASE_INDEX_ROOT="/mnt/aime_eval_ssd"                # bad_case_index_aime.jsonl 落在这一级
 export CLUSTER_CONCURRENCY=12            # 弗吉尼亚 8
-export CLUSTER_GATEWAYS="<网关或空>"
+export CLUSTER_GATEWAYS="<网关，逗号分隔；弗吉尼亚是 http://10.99.116.223:8888/v1>"
 export EVAL_GATEWAY_API_KEY=dummy
-export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,localhost,127.0.0.1"
+export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,localhost,127.0.0.1"
 ```
 
 四个必须项，缺一个就会踩坑：
@@ -245,12 +274,13 @@ ls /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/taxonomy/inventor
 **弗吉尼亚（全新容器）**
 
 ```bash
-# 1) 装环境（§5.1 + §5.2）
+# 1) 装环境（§5.1 + §5.1.1 + §5.2）
 python3 -m venv /opt/cluster-venv && /opt/cluster-venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ pillow
+apt-get install -y --no-install-recommends tzdata   # 缺它 TZ 会静默退化成 UTC，见 §5.1.1
 # 2) 拉代码（本机执行）
 ./deploy_local.sh aime
 # 3) 数据到位后确认根下有 attribution 文件
-find /mnt/fin_bench/aime_rsi_data/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
+find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 ```
 
 这台机器：`/opt` 与 `/` 都是本地 overlay（重建即丢，venv 重装）；`/mnt/fin_bench/aime_rsi_data` 是 ceph（重建保留）。
@@ -290,9 +320,11 @@ find /mnt/fin_bench/aime_rsi_data/1_aime/eval_output -name '*attribution*.jsonl'
 - **处理**：`bin/cluster.py` 会把未登记的 raw component 写进 `<run>/unregistered.json` 并中止——按提示登记，别加 catch-all 桶。2026-11-03 全量扫描已 0 阻塞。
 
 ### 7.7 换了数据集路径后 `src_map.json` 溯源断裂
-- **现象**：`cluster/<model>/src_map.json` 的 `src_root` 指向一个已经不存在的快照目录。
-- **原因**：基线是旧机器/旧路径下跑的，`merge_runs` 把绝对路径固化进了 `items.jsonl`。
-- **处理**：换路径后先 `bin/rebase_paths.py --run runs --datasets <新根> --repo <新仓库>` 再增量；每次交付都会重跑 `bin/make_src_map.py`。
+- **现象**：`cluster/<model>/src_map.json` 的 `src_root`/映射值指向一个已经不存在的快照目录；`cluster_tree.json` 里全是旧机器的绝对路径。
+- **原因**：旧版 `merge_runs` 会把绝对路径写进基线并带进交付物；数据一换挂载点（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁到 `/mnt/aime_eval_ssd`）就全断。
+- **处理**：
+  - 交付物自 2026-11-09 起只存相对路径：`item_index.jsonl.file`、`cluster_tree.json` 的 `src_file` 都是 `daily/xxx.jsonl` 这种「父目录名/文件名」，绝对路径只保留在 `src_map.json`（`src_root` = 源文件公共根 + `files` 映射）里，换机器只改 `AIME_ROOT` 即可。
+  - 老基线换机器时仍先跑 `bin/rebase_paths.py --run runs --datasets <新根> --repo <新仓库>`（它会把 `src_path` 重映射、把老 `file` 绝对路径压回相对形式），再增量；每次交付都会重跑 `bin/make_src_map.py`。
 
 ### 7.8 继承别台的基线会 `verify` 断链
 - **现象**：拿乌兰的 AIME 基线到弗吉尼亚做增量，`verify` 报 `src not found`。
@@ -319,13 +351,30 @@ find /mnt/fin_bench/aime_rsi_data/1_aime/eval_output -name '*attribution*.jsonl'
 - **原因**：macOS 没 `flock`。
 - **处理**：脚本检测到没有 `flock` 会跳过锁并提示；服务器有 `flock`，正常生效。
 
+### 7.13 SSH 到弗吉尼亚间歇 `Connection refused`
+- **现象**：`ssh aime_rsi_data` 时通时不通（2026-11-09 实测约一半新连接被拒），`rsync`/`scp` 同样受影响；容器本身活着，重试往往就能连上。
+- **原因**：`10.217.219.2:2225` 的端口映射/入口对短时间内的多次新连接有丢包，不是鉴权问题。
+- **处理**：给这台机器开连接复用，后续命令都走同一条长连接：
+
+  ```bash
+  ssh -o ControlMaster=auto -o ControlPath=/tmp/ssh-va-%r@%h:%p -o ControlPersist=8h aime_rsi_data true
+  # 之后 ssh/rsync/scp 带上同一组 -o（或把 ssh 包一层 PATH wrapper）即可复用，不再新建连接
+  ```
+
+  跑 `./deploy_local.sh aime` 时用一个带上述参数的 `ssh` wrapper 放 PATH 前面，rsync/scp 也走复用。
+
+### 7.14 预检 `find` 全树遍历被 ceph 拖死
+- **现象**：`bin/preflight.sh` 第 4 项卡住几分钟不返回（2026-11-09 复验时 >5 分钟），`run_trees.sh` 启动前也会调它。
+- **原因**：预检用 `find <渠道根> -name '*attribution*.jsonl'` 扫全树，而 `1_aime/eval_output/0_daily_eval_atomic-shards/` 下有数据搬运工具写的 `.delivery/claims/...` 状态目录（小文件极多），ceph-fuse 上逐个 stat 很慢；这些文件本来就会被后面的 `grep -v` 过滤掉，纯属白扫。
+- **处理**：已改成先 `-prune` 掉 `.*` / `cluster` / `comparison` / `criteria` 再数，计数不变（AIME 仍 149），耗时从 >5 分钟降到约 40s。以后再有重型非输入目录，加进同一个 prune 列表。
+
 ---
 
 ## 8. 排错速查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `BLOCKED CLUSTER_GATEWAYS 为空` | 该机器网关没开通 | 等开通后改 `.deploy/env.sh` 一行，重跑 |
+| `BLOCKED CLUSTER_GATEWAYS 为空` | 该机器没配网关 | 重跑 `./deploy_local.sh <渠道>` 渲染 env.sh（弗吉尼亚网关 2026-11-09 已开通） |
 | `BLOCKED ... 没有 attribution 文件` | 数据还没搬到位 | 等数据；或检查 `*_ROOT` 是否指对 |
 | `No module named 'PIL'` | 没 source env.sh | `source .deploy/env.sh` |
 | `OSError: cannot open resource` | 字体路径不对 | 检查 `CLUSTER_CHART_FONT` 与 `.deploy/fonts/` |
@@ -362,3 +411,22 @@ find /mnt/fin_bench/aime_rsi_data/1_aime/eval_output -name '*attribution*.jsonl'
 | 配额 / 并发 | 8 核 / 16 GiB / 12 并发 | 6 核 / 64 GiB / 8 并发 |
 | 守护进程 | 未启动（按约定只装不启动） | 未启动 |
 | 已交付产物 | `cluster/` 4 棵树未被本次部署触碰（mtime 仍是 11-02 14:34–14:35） | 无（`cluster/` 未生成） |
+
+## 11. 部署验收记录（2026-11-09 19:31，弗吉尼亚重装 + 网关开通）
+
+本次只重装了代码与环境，**没有跑聚类**（不覆盖已有 `cluster/`）。
+
+| 验收项 | 结果 |
+|---|---|
+| 代码 | 本机 rsync，commit `b1058fd`，`code_sha256 f7845cde16120abd…`（含 `bin/preflight.sh` 的 find prune 修复，见 §7.14；以 `.deploy/DEPLOYED.json` 为准） |
+| `bin/preflight.sh` | 7 项 OK + 1 WARN（非 git 仓库），**0 FAIL / 0 BLOCKED → 可以开跑**；耗时 39s（修复前会卡在 `atomic-shards/.delivery` 上 >5 分钟） |
+| Python | `/opt/cluster-venv` 重建：Python 3.12.12 + Pillow 13.0.0（aliyun 源，`/opt` 本地盘） |
+| 字体 | `.deploy/fonts/wqy-zenhei.ttc` 在 ceph 上，未重装，预检第 6 项真加载通过 |
+| 时区 | pod 缺 tzdata，已装 `tzdata 2026e`（`ii`），`source env.sh` 后 `date` = `… CST` |
+| 网关 | `http://10.99.116.223:8888/v1`（vLLM `deepseek-v4.1-flash`）：`/v1/models` 200；`/v1/responses` 200 返回 `pong`；`classify.py` 跑 3 条 fixture 分片 **3/3 成功、0 失败、3 次调用 3.9s** |
+| 树发现 | 2 棵：`aime_fast`（25 个 attribution / 36,255 行）、`aime_expert`（36 个 / 11,257 行） |
+| 数据根 | `.../1_aime/eval_output`；预检 `find` 计数 149（含 atomic-shards 等不入树的目录），真正入树 61 |
+| 已有产物 | `cluster/aime_fast` 127,041 条 / 188 叶子、`cluster/aime_expert` 45,614 条 / 178 叶子，verify 全 0 错；均为 **11-09 04:11 / 05:21 生成**，`item_index.jsonl` 指向拆分前旧布局，非本机当前数据产物 |
+| 基线 | `runs/` 无 `run`/`run_merged`，只有陈旧 `_src` 软链 → **第一次跑必须全量**；`--incremental --no-full-fallback` 会退 3 |
+| bad_case 索引 | 未生成（`/mnt/fin_bench/aime_rsi_data/bad_case_index_aime.jsonl` 不存在），跑完 `run_trees.sh` 会自动建 |
+| 守护进程 | 未启动（按约定只装不启动） |

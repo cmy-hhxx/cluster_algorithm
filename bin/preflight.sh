@@ -56,14 +56,16 @@ fi
 echo "[4/8] 渠道与数据根"
 HR=0
 if [[ "$CH" == "wencai" || "$CH" == "auto" ]] && [[ -n "${WENCAI_ROOT:-}" ]]; then
-  N=$(find "$WENCAI_ROOT" -name '*attribution*.jsonl' 2>/dev/null | grep -vE '/(\.|cluster|comparison|criteria)' | wc -l | tr -d ' ')
+  # 只数真正会被扫描到的目录：.delivery/.runs 这类状态目录在 ceph 上可能有几十万个小文件，
+  # find 全树遍历会把预检拖成几分钟（2026-11-09 实测），所以先 prune 掉再数。
+  N=$(find "$WENCAI_ROOT" \( -name '.*' -o -name cluster -o -name comparison -o -name criteria \) -prune -o -name '*attribution*.jsonl' -print 2>/dev/null | grep -vE '/(\.|cluster|comparison|criteria)' | wc -l | tr -d ' ')
   if [[ -d "$WENCAI_ROOT" ]]; then
     if [[ "$N" -gt 0 ]]; then ok "问财 ${WENCAI_ROOT}（${N} 个 attribution 文件）"; HR=$((HR + 1))
     else blk "问财 ${WENCAI_ROOT} 存在但没有 attribution 文件（等数据）"; fi
   else bad "问财根不存在：$WENCAI_ROOT"; fi
 fi
 if [[ "$CH" == "aime" || "$CH" == "auto" ]] && [[ -n "${AIME_ROOT:-}" ]]; then
-  N=$(find "$AIME_ROOT" -name '*attribution*.jsonl' 2>/dev/null | grep -vE '/(\.|cluster|comparison|criteria)' | wc -l | tr -d ' ')
+  N=$(find "$AIME_ROOT" \( -name '.*' -o -name cluster -o -name comparison -o -name criteria \) -prune -o -name '*attribution*.jsonl' -print 2>/dev/null | grep -vE '/(\.|cluster|comparison|criteria)' | wc -l | tr -d ' ')
   if [[ -d "$AIME_ROOT" ]]; then
     if [[ "$N" -gt 0 ]]; then ok "AIME ${AIME_ROOT}（${N} 个 attribution 文件）"; HR=$((HR + 1))
     else blk "AIME ${AIME_ROOT} 存在但没有 attribution 文件（等数据搬过来）"; fi
