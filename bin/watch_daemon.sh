@@ -14,13 +14,14 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 CH=${1:?用法: bin/watch_daemon.sh <wencai|aime> [检查间隔秒]}
 SLEEP=${2:-300}
+INTERVAL=${CLUSTER_INTERVAL:-1800}   # 被拉起的增量循环保持同一节奏（弗吉尼亚现为 7200s）
 SESSION="cluster-incr-${CH}"
 mkdir -p logs
 echo "[$(date '+%F %T')] 看门狗启动：每 ${SLEEP}s 检查 ${SESSION}"
 while true; do
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "[$(date '+%F %T')] ${SESSION} 不在，重新拉起"
-    tmux new-session -d -s "$SESSION" "bin/channel_daemon.sh $CH >> logs/incremental-$CH.log 2>&1"
+    echo "[$(date '+%F %T')] ${SESSION} 不在，重新拉起（间隔 ${INTERVAL}s）"
+    tmux new-session -d -s "$SESSION" "cd $ROOT && CLUSTER_INTERVAL=$INTERVAL bin/channel_daemon.sh $CH >> logs/incremental-$CH.log 2>&1"
     echo "[$(date '+%F %T')] 已重新拉起 ${SESSION}" >> "logs/failures-$CH.log"
   fi
   sleep "$SLEEP"

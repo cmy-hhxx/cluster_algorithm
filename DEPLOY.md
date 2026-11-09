@@ -164,20 +164,20 @@ bin/run_trees.sh --channel wencai                # 临时指定渠道（覆盖 e
 
 ---
 
-## 4. 守护进程（**默认不启动**）
+## 4. 守护进程（乌兰默认不启动；弗吉尼亚 AIME 2026-11-09 起已启动，每 2 小时一轮）
 
 两台机器都没有 crontab / systemd（`crontab: command not found`、PID 1 不是 init），所以只能用 tmux 常驻。
 
 ```bash
-# 启动（在各自机器上，只跑本渠道）
-tmux new -d -s cluster-incr-wencai "bin/channel_daemon.sh wencai >> logs/incremental-wencai.log 2>&1"
-tmux new -d -s cluster-incr-aime   "bin/channel_daemon.sh aime   >> logs/incremental-aime.log 2>&1"
-tmux new -d -s cluster-watch-wencai "bin/watch_daemon.sh wencai >> logs/watchdog-wencai.log 2>&1"
-tmux new -d -s cluster-watch-aime   "bin/watch_daemon.sh aime   >> logs/watchdog-aime.log 2>&1"
+# 启动（在各自机器上，只跑本渠道；间隔按机器定：乌兰 1800s，弗吉尼亚 7200s）
+tmux new -d -s cluster-incr-wencai "cd $PWD && bin/channel_daemon.sh wencai >> logs/incremental-wencai.log 2>&1"
+tmux new -d -s cluster-incr-aime   "cd $PWD && CLUSTER_INTERVAL=7200 bin/channel_daemon.sh aime 7200 >> logs/incremental-aime.log 2>&1"
+tmux new -d -s cluster-watch-wencai "cd $PWD && bin/watch_daemon.sh wencai >> logs/watchdog-wencai.log 2>&1"
+tmux new -d -s cluster-watch-aime   "cd $PWD && CLUSTER_INTERVAL=7200 bin/watch_daemon.sh aime >> logs/watchdog-aime.log 2>&1"
 ```
 
-- `bin/channel_daemon.sh <渠道> [间隔秒]`：默认 1800 秒一轮，`--incremental --no-full-fallback`，无新增只写一行 noop；每轮写 `logs/incr_status_<渠道>.json`，失败追加 `logs/failures_<渠道>.log`。**网关为空的机器不刷失败日志**，只写 `blocked-no-gateway`。
-- `bin/watch_daemon.sh <渠道> [检查秒]`：每 5 分钟看 `cluster-incr-<渠道>` 在不在，被 OOM 杀掉就拉起。
+- `bin/channel_daemon.sh <渠道> [间隔秒]`：默认 1800 秒一轮（弗吉尼亚用 7200 = 2 小时），`--incremental --no-full-fallback`，无新增只写一行 noop；每轮写 `logs/incr_status_<渠道>.json`，失败追加 `logs/failures_<渠道>.log`。**网关为空的机器不刷失败日志**，只写 `blocked-no-gateway`。
+- `bin/watch_daemon.sh <渠道> [检查秒]`：每 5 分钟看 `cluster-incr-<渠道>` 在不在，被 OOM 杀掉就拉起；拉起时用 `CLUSTER_INTERVAL`（缺省 1800）保持原节奏，不会掉回 30 分钟。
 - **要停先停看门狗**，否则主循环 5 分钟内会被拉回来：
 
 ```bash
@@ -185,7 +185,7 @@ tmux kill-session -t cluster-watch-wencai; tmux kill-session -t cluster-incr-wen
 tmux kill-session -t cluster-watch-aime;   tmux kill-session -t cluster-incr-aime
 ```
 
-2026-11-03 起两台都**只装不启动**，等通知再开。
+2026-11-03 起乌兰**只装不启动**；弗吉尼亚 2026-11-09 起已按 2 小时间隔启动（另有 DSH 2 小时巡逻任务对照检查）。
 
 ---
 
