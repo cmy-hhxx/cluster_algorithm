@@ -29,7 +29,14 @@ src_root() {
 import json, os, sys
 run = sys.argv[1]
 it = json.loads(open(os.path.join(run, "items.jsonl"), encoding="utf-8").readline())
-print(os.path.dirname(it["src_path"][: -len(it["file"])]))
+sp, fl = it.get("src_path", ""), it.get("file", "")
+# file 自 2026-11-09 起固定是「父目录名/文件名」相对形式，src_path 必须是它的绝对版
+if not sp or not fl or not sp.endswith(fl):
+    sys.exit(f"无法从 items.jsonl 推导 src 根：src_path={sp!r} file={fl!r}")
+root = os.path.dirname(sp[: -len(fl)])
+if not os.path.isdir(root):
+    sys.exit(f"推导出的 src 根不存在：{root}")
+print(root)
 PY
 }
 

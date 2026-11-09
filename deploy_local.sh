@@ -84,6 +84,8 @@ fi
 
 echo
 echo "== 渲染 .deploy/env.sh =="
+# 小文件用 ssh 写入而不是 scp：这条链路上 scp 会间歇 Connection closed（DEPLOY.md §7.13）
+put() { ssh "$HOST" "cat > '$1'" < "$2"; }
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 cat > "$TMP" <<EOF
@@ -104,7 +106,7 @@ export EVAL_GATEWAY_API_KEY=dummy
 export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,localhost,127.0.0.1"
 export no_proxy="\$NO_PROXY"
 EOF
-scp -q "$TMP" "$HOST:$REPO/.deploy/env.sh"
+put "$REPO/.deploy/env.sh" "$TMP"
 
 echo "== 写部署指纹 =="
 cat > "$TMP" <<EOF
@@ -122,7 +124,7 @@ cat > "$TMP" <<EOF
  "gateways": "$GW"
 }
 EOF
-scp -q "$TMP" "$HOST:$REPO/.deploy/DEPLOYED.json"
+put "$REPO/.deploy/DEPLOYED.json" "$TMP"
 ssh "$HOST" "cd '$REPO' && echo '代码文件数：'\$(find bin taxonomy prompts -type f | wc -l) && cat .deploy/DEPLOYED.json | head -6"
 
 if (( PRE )); then
