@@ -377,6 +377,12 @@
   "role": "request_generation",
   "stage": "S10"
  },
+ "aime_memory_write": {
+  "tool": "aime_memory_write",
+  "label": "记忆写入",
+  "role": "tool",
+  "stage": "S7"
+ },
  "aime_memory_write 请求生成": {
   "tool": "aime_memory_write",
   "label": "记忆写入（请求生成）",
@@ -1102,5 +1108,41 @@
   "label": "网页检索（结果评估）",
   "role": "tool",
   "stage": "S5"
+ },
+ "business.py": {
+  "tool": "shell",
+  "label": "代码解释器（脚本 business.py）",
+  "role": "script",
+  "stage": "S4"
+ },
+ "cloud-automation": {
+  "tool": "cloud-automation",
+  "label": "云自动化技能",
+  "role": "skill",
+  "stage": "S8"
+ },
+ "execute_client_tool": {
+  "tool": "execute_client_tool",
+  "label": "客户端工具执行器",
+  "role": "tool",
+  "stage": "S10"
+ },
+ "get_client_tool_detail": {
+  "tool": "get_client_tool_detail",
+  "label": "客户端工具详情查询",
+  "role": "tool",
+  "stage": "S8"
+ },
+ "get_kline_snapshot": {
+  "tool": "get_kline_snapshot",
+  "label": "行情快照服务",
+  "role": "tool",
+  "stage": "S3"
+ },
+ "superchart-settings": {
+  "tool": "superchart-settings",
+  "label": "超级图表技能",
+  "role": "skill",
+  "stage": "S8"
  }
 }

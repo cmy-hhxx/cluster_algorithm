@@ -27,7 +27,7 @@
 
 模型网关（`interactive-*`）只有内网可达，所以真正的聚类在服务器上跑；本机只负责发起和看结果。
 
-聚类按渠道拆在两台机器上（乌兰 = 问财，弗吉尼亚 = AIME），各自的数据根见 [DEPLOY.md](DEPLOY.md) §0。
+聚类按渠道拆在两台机器上，位置固定：**问财在乌兰**（`eval_data`）、**AIME 在弗吉尼亚**（`aime_rsi_data`），各自的数据根见 [DEPLOY.md](DEPLOY.md) §0。两台机器的连接信息（host / SSH 端口 / 容器名 / 密钥）都在仓库根的 `.servers.conf`（本机文件，已 gitignore）。
 
 在这台 DSH 里说：
 
@@ -52,7 +52,7 @@
 ## 2. 自己跑（在服务器上，分步）
 
 ```bash
-ssh eval_data            # 问财（乌兰）；AIME 用 ssh aime_rsi_data
+ssh eval_data            # 问财（乌兰）；AIME 用 ssh aime_rsi_data。连接信息见 .servers.conf
 cd /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm    # 弗吉尼亚是 /mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm
 tmux new -s cluster
 source .deploy/env.sh    # 必须有：渠道根、网关、字体、PATH 都在里面

@@ -141,7 +141,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   base=$(baseline "$t")
   if [[ $INC -eq 1 && -z "$base" && $NOFULL -eq 1 ]]; then
     echo "  $t 缺少基线，且指定了 --no-full-fallback：拒绝退化成全量" >&2
-    exit 3
+    return 3
   fi
   t0=$(date +%s)
 
@@ -191,15 +191,28 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v"
 }
 
+FAILED_TREES=""
 while IFS= read -r row; do
   [[ -n "$row" ]] || continue
   IFS=$'\t' read -r t ch src deliver srcroot <<< "$row"
   selected "$t" || continue
   if [[ ! -d "$src" ]]; then echo "跳过 ${t}：输入目录不存在 $src"; continue; fi
-  run_tree "$t" "$src" "$deliver" "$srcroot"
+  # 单棵树失败不连坐：其余树照常跑完并交付，最后统一非零退出（否则快树会被慢树的偶发失败饿死）
+  # 注意：子 shell 里显式 set -e，保证树内部任何一步失败立刻中止该树，而不是带着半成品往下走
+  set +e
+  ( set -e; run_tree "$t" "$src" "$deliver" "$srcroot" )
+  local_rc=$?
+  set -e
+  if (( local_rc != 0 )); then
+    FAILED_TREES="$FAILED_TREES $t"
+    echo "  ✗ ${t} 失败（rc=${local_rc}，见上方日志），继续下一棵树" >&2
+  fi
 done <<< "$ROWS"
 
 echo
+if [[ -n "$FAILED_TREES" ]]; then
+  echo "部分失败：${FAILED_TREES# }（其余树已正常交付，索引重建仅覆盖已交付内容）" >&2
+fi
 if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
   if [[ -n "${CASE_INDEX_ROOT:-}" ]]; then
     echo "重建 bad_case 索引（渠道 ${CH}）..."
@@ -211,4 +224,9 @@ if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
     echo "WARN 没有 CASE_INDEX_ROOT，跳过 bad_case 索引重建"
   fi
 fi
-echo "全部完成。运行记录：$LEDGER"
+if [[ -z "$FAILED_TREES" ]]; then
+  echo "全部完成。运行记录：$LEDGER"
+  exit 0
+fi
+echo "未全部完成，失败树：${FAILED_TREES# }。运行记录：$LEDGER" >&2
+exit 1
