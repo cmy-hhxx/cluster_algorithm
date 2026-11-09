@@ -37,14 +37,14 @@
 | 渠道 `CLUSTER_CHANNEL` | `wencai` | `aime` |
 | SSH（`~/.ssh/config`） | `eval_data` | `aime_rsi_data` |
 | 容器名 | `interactive-i6piqwvlnsr5` | `interactive-npasm9ch66eb` |
-| 代码目录 | `/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm` | `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm` |
+| 代码目录 | `/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm` | **`/mnt/aime_eval_ssd/code/2_cluster_algorithm`**（2026-11-09 起，SSD） |
 | 数据根 `*_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output` | **`/mnt/aime_eval_ssd/1_aime/eval_output`**（2026-11-09 起，SSD） |
 | 索引目录 `CASE_INDEX_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets` | **`/mnt/aime_eval_ssd`**（`bad_case_index_aime.jsonl` 落在 `1_aime` 的上一级） |
 | Python venv | 仓库内 `.venv`（历史遗留，能用就不动） | `/opt/cluster-venv`（本地盘，ceph 上装 site-packages 极慢） |
 | 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | `http://10.99.116.223:8888/v1`（vLLM `deepseek-v4.1-flash`，2026-11-09 开通） |
 | 并发 `CLUSTER_CONCURRENCY` | 12 | 8 |
 | 容器配额 | 8 核 / 16 GiB / 无 swap | 6 核 / 64 GiB / 无 swap |
-| 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | ceph-fuse 挂到 `/mnt/aime_eval_ssd`（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁来，旧目录只读保留） |
+| 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | ceph-fuse 挂到 `/mnt/aime_eval_ssd`（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁来；旧目录已删除） |
 | 公网 | pypi 不通（DNS 只给 IPv6），tuna/aliyun 通 | pypi / aliyun / github 都通 |
 | 部署 | `./deploy_local.sh wencai` | `./deploy_local.sh aime` |
 
@@ -52,12 +52,14 @@
 
 AIME 的**输入和输出整体迁到 `/mnt/aime_eval_ssd`**，相对结构与旧位置完全一致（`1_aime/eval_output/...`），所以代码只认根、不认前缀：
 
-| 用途 | 新路径（SSD） | 旧路径（`/mnt/fin_bench/aime_rsi_data`，只读保留，勿再写入） |
+| 用途 | 新路径（SSD，唯一位置） | 说明 |
 |---|---|---|
-| 输入根 `AIME_ROOT` | `/mnt/aime_eval_ssd/1_aime/eval_output` | `.../aime_rsi_data/1_aime/eval_output` |
-| 交付 `cluster/<model>/` | `/mnt/aime_eval_ssd/1_aime/eval_output/cluster/<model>/` | 同左（旧树上还有一份 2026-11-09 前的副本） |
-| bad_case 索引 | `/mnt/aime_eval_ssd/bad_case_index_aime.jsonl` | `.../aime_rsi_data/bad_case_index_aime.jsonl` |
-| 代码目录（**未迁**） | `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm` | 同左（仍用旧 mount；以后要搬时只改 `VA_REPO`） |
+| 输入根 `AIME_ROOT` | `/mnt/aime_eval_ssd/1_aime/eval_output` | 相对结构不变（`0_daily_eval/`、`1_lost_user_eval/`） |
+| 交付 `cluster/<model>/` | `/mnt/aime_eval_ssd/1_aime/eval_output/cluster/<model>/` | 每次 `run_trees.sh` 覆盖写 |
+| bad_case 索引 | `/mnt/aime_eval_ssd/bad_case_index_aime.jsonl` | `CASE_INDEX_ROOT` 指到 `1_aime` 上一级 |
+| 代码目录 | `/mnt/aime_eval_ssd/code/2_cluster_algorithm` | 2026-11-09 迁入，`deploy_local.sh` 的 `VA_REPO` 默认值 |
+
+旧根 `/mnt/fin_bench/aime_rsi_data`（数据和代码）已在 2026-11-09 **整目录删除**——迁移完成后的唯一位置就是 `/mnt/aime_eval_ssd`，不再保留只读副本。
 
 迁移不影响换机器：`bin/discover_trees.py` 只扫 `AIME_ROOT` 下的 `0_daily_eval/` 与 `1_lost_user_eval/`，`cluster/` 输出永远写回 `<AIME_ROOT>/cluster/`。**改路径只改 `deploy_local.sh` 的 `VA_ROOT` / `VA_INDEX` 默认值**（见 §5.3），不要手改 `.deploy/env.sh`。
 
@@ -113,7 +115,7 @@ AIME 的**输入和输出整体迁到 `/mnt/aime_eval_ssd`**，相对结构与�
 
 ```bash
 ssh eval_data      'cat /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/.deploy/DEPLOYED.json' | grep code_sha256
-ssh aime_rsi_data  'cat /mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm/.deploy/DEPLOYED.json' | grep code_sha256
+ssh aime_rsi_data  'cat /mnt/aime_eval_ssd/code/2_cluster_algorithm/.deploy/DEPLOYED.json' | grep code_sha256
 ```
 
 目标机器/路径可以覆盖：在本机建 `.deploy/local.conf`（已 gitignore，无密钥），变量名见 `deploy_local.sh` 头部注释（`WL_*` / `VA_*`）。
@@ -283,7 +285,7 @@ apt-get install -y --no-install-recommends tzdata   # 缺它 TZ 会静默退化�
 find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 ```
 
-这台机器：`/opt` 与 `/` 都是本地 overlay（重建即丢，venv 重装）；`/mnt/fin_bench/aime_rsi_data` 是 ceph（重建保留）。
+这台机器：`/opt` 与 `/` 都是本地 overlay（重建即丢，venv 重装）；`/mnt/aime_eval_ssd` 是 ceph（重建保留）。
 
 ---
 
@@ -414,7 +416,7 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 ## 11. 部署验收记录（2026-11-09 19:31，弗吉尼亚重装 + 网关开通）
 
-> 本节是 19:31 的旧根（`/mnt/fin_bench/aime_rsi_data`）记录；20:00 数据根已迁到 SSD，最新状态见 §12。
+> 本节是 19:31 的旧根（`/mnt/fin_bench/aime_rsi_data`）记录；20:00 数据根、20:20 代码目录先后迁到 SSD，旧根已删除，最新状态见 §12。
 
 本次只重装了代码与环境，**没有跑聚类**（不覆盖已有 `cluster/`）。
 

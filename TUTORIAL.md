@@ -53,7 +53,7 @@
 
 ```bash
 ssh eval_data            # 问财（乌兰）；AIME 用 ssh aime_rsi_data。连接信息见 .servers.conf
-cd /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm    # 弗吉尼亚是 /mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm
+cd /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm    # 弗吉尼亚是 /mnt/aime_eval_ssd/code/2_cluster_algorithm
 tmux new -s cluster
 source .deploy/env.sh    # 必须有：渠道根、网关、字体、PATH 都在里面
 bin/preflight.sh         # 8 项预检：OK / BLOCKED（等外部条件）/ FAIL

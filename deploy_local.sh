@@ -43,9 +43,9 @@ case "$CH" in
     ;;
   aime)
     HOST=${VA_HOST:-aime_rsi_data}
-    REPO=${VA_REPO:-/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm}
+    REPO=${VA_REPO:-/mnt/aime_eval_ssd/code/2_cluster_algorithm}
     VENV=${VA_VENV:-/opt/cluster-venv}
-    # 2026-11-09 起 AIME 数据在 SSD 布局 /mnt/aime_eval_ssd（相对结构不变：1_aime/eval_output）
+    # 2026-11-09 起 AIME 的数据和代码都在 SSD 布局 /mnt/aime_eval_ssd（相对结构不变：code/、1_aime/eval_output）
     ROOT=${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}
     INDEX=${VA_INDEX:-/mnt/aime_eval_ssd}
     GW=${VA_GATEWAYS:-http://10.99.116.223:8888/v1}
