@@ -84,7 +84,7 @@ AIME 的**输入和输出整体迁到 `/mnt/aime_eval_ssd`**，相对结构与�
 
 `comparison/`（7 组两两模型对比）和 `criteria/`（判据表）不是归因数据，不参与聚类。
 
-**弗吉尼亚（AIME）实况（2026-11-09 20:05 快照，数据已迁到 SSD）**：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`，`0_daily_eval`（`aime_fast` / `aime_expert` 各 20 个 attribution）与 `1_lost_user_eval`（fast 5 / expert 16），**真正入树 61 个文件**；`0_daily_eval_atomic-shards/`（c1–c3，fast 12/11/14、expert 14/13/14）与 `2_task_eval/`（`0_lost_user_back_test`）也已搬入，但 AIME 的组名写死在 `bin/discover_trees.py` 的 `AIME_GROUPS = ('0_daily_eval', '1_lost_user_eval')`，**这两个目录不会被读**；预检第 4 项用 `find` 扫全树计数（149 个），比真正入树的 61 个多，别拿它当输入量。`cluster/` 下现有 `aime_fast`（127,041 条 / 188 叶子）与 `aime_expert`（45,614 条 / 178 叶子）的 12 件交付，是**从旧布局（乌兰 `sync_datasets` / `code_and_clean_data`）拷来的历史产物**：`item_index.jsonl` 的 `file` 与 `src_map.json` 里还是旧机器绝对路径，和当前 61 个文件不是同一批数据；本机 `runs/` 也没有基线（只剩 `_src` 软链）。**这些旧产物不做路径修补**——第一次全量跑会直接覆盖它们；自 2026-11-09 起，交付物里的 `src_file` / `file` 一律存相对路径（`daily/xxx.jsonl`），绝对路径只出现在 `src_map.json` 的映射值和 `src_root` 里（见 §12）。
+**弗吉尼亚（AIME）实况（2026-11-09 20:05 快照，数据已迁到 SSD）**：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`，`0_daily_eval`（`aime_fast` / `aime_expert` 各 20 个 attribution）与 `1_lost_user_eval`（fast 5 / expert 16），**真正入树 61 个文件**；`2_task_eval/`（`0_lost_user_back_test`，fast 5 + expert 5）也在，但 AIME 的组名写死在 `bin/discover_trees.py` 的 `AIME_GROUPS = ('0_daily_eval', '1_lost_user_eval')`，**这两个目录不会被读**；预检第 4 项用 `find` 扫全树计数（SSD 根下 71 个 = 入树 61 + `2_task_eval` 10），比真正入树的 61 个多，别拿它当输入量；`0_daily_eval_atomic-shards/` 在迁移后的新根下已不存在（2026-11-09 20:00 实测）。`cluster/` 下现有 `aime_fast`（127,041 条 / 188 叶子）与 `aime_expert`（45,614 条 / 178 叶子）的 12 件交付，是**从旧布局（乌兰 `sync_datasets` / `code_and_clean_data`）拷来的历史产物**：`item_index.jsonl` 的 `file` 与 `src_map.json` 里还是旧机器绝对路径，和当前 61 个文件不是同一批数据；本机 `runs/` 也没有基线（只剩 `_src` 软链）。**这些旧产物不做路径修补**——第一次全量跑会直接覆盖它们；自 2026-11-09 起，交付物里的 `src_file` / `file` 一律存相对路径（`daily/xxx.jsonl`），绝对路径只出现在 `src_map.json` 的映射值和 `src_root` 里（见 §12）。
 
 **本仓库不搬数据、不解包**。数据到齐后：预检第 4 项的 `BLOCKED` 会自动变成 `OK`；树发现会自动把 lost 那一路并进同一棵树（AIME 的树名 = model 名，`0_daily_eval` 和 `1_lost_user_eval` 合成一棵），不需要改任何配置。
 
@@ -414,6 +414,8 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 ## 11. 部署验收记录（2026-11-09 19:31，弗吉尼亚重装 + 网关开通）
 
+> 本节是 19:31 的旧根（`/mnt/fin_bench/aime_rsi_data`）记录；20:00 数据根已迁到 SSD，最新状态见 §12。
+
 本次只重装了代码与环境，**没有跑聚类**（不覆盖已有 `cluster/`）。
 
 | 验收项 | 结果 |
@@ -430,3 +432,22 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 | 基线 | `runs/` 无 `run`/`run_merged`，只有陈旧 `_src` 软链 → **第一次跑必须全量**；`--incremental --no-full-fallback` 会退 3 |
 | bad_case 索引 | 未生成（`/mnt/fin_bench/aime_rsi_data/bad_case_index_aime.jsonl` 不存在），跑完 `run_trees.sh` 会自动建 |
 | 守护进程 | 未启动（按约定只装不启动） |
+
+
+## 12. 2026-11-09 20:00 迁移记录（AIME 数据 → SSD；交付物改存相对路径）
+
+| 项 | 结果 |
+|---|---|
+| 数据根 | `AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`，`CASE_INDEX_ROOT=/mnt/aime_eval_ssd`（相对结构不变）；旧根 `/mnt/fin_bench/aime_rsi_data` 只读保留，勿再写入 |
+| 代码/部署 | commit `2e398db`，`code_sha256 ce97575f9860e6c5…`；`./deploy_local.sh aime` 成功（`DEPLOYED.json` 已是新根） |
+| 预检 | 7 项 OK + 1 WARN（非 git 仓库），0 FAIL / 0 BLOCKED；网关 `/v1/models` 200 |
+| 树发现 | 2 棵：`aime_fast`（25 个 attribution）、`aime_expert`（36 个）；交付目标 `<AIME_ROOT>/cluster/<model>/` |
+| 旧 staging | 已清掉 `runs/_src`（旧根软链），下次 `run_trees.sh` 按新根重建 |
+| 冒烟 | 服务器 `tests/smoke.sh` OK（verify 0 错）；真实网关跑 3 条 fixture 分片 **3/3 成功、0 失败** |
+| 交付物路径 | 自本版起 `item_index.jsonl.file` 与 `cluster_tree.json` 的 `src_file` 只存相对路径（`daily/xxx.jsonl`、`lost/xxx.jsonl`）；`src_map.json` 的 `src_root` = 源文件真实公共根（AIME 即 `<AIME_ROOT>`），`files` 值为 realpath；换机器只改 `AIME_ROOT` |
+| 老基线 | `rebase_paths.py` 会把老 `file` 的绝对路径压回相对形式、重映射 `src_path` |
+| 已有 `cluster/` | 仍是旧布局拷来的历史产物（旧绝对路径、数据批次不同），**本次未改**；第一次全量跑会覆盖，跑前确认可以覆盖 |
+
+改动点（对应 commit）：`deploy_local.sh`（新根默认值 + 用 `ssh cat >` 写 env/fingerprint，绕开 scp 间歇断连）、`bin/merge_runs.py`（`file` 固定相对）、`bin/make_src_map.py`（`src_root` 改真实公共根）、`bin/rebase_paths.py`（老基线归一化）、`bin/preflight.sh`（find prune）、`run_cluster.sh`（src 根校验）、`DEPLOY.md`/`README.md`/`RUNBOOK.md`。
+
+> 未迁项：代码目录仍在 `/mnt/fin_bench/aime_rsi_data/code/2_cluster_algorithm`（旧 mount）。要搬到 `/mnt/aime_eval_ssd/code/2_cluster_algorithm` 只改 `VA_REPO`（那边已有一份 11-03 的旧副本，部署会覆盖）。
