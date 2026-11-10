@@ -9,7 +9,7 @@
 #
 # 目标机器/路径可用 .deploy/local.conf 覆盖（gitignore，不放密钥）：
 #   WL_HOST=eval_data  WL_REPO=...  WL_VENV=...  WL_ROOT=...  WL_INDEX=...  WL_GATEWAYS=...  WL_CONC=12
-#   VA_HOST=aime_rsi_data  VA_REPO=...  VA_VENV=...  VA_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output  VA_INDEX=/mnt/aime_eval_ssd  VA_GATEWAYS=http://10.99.116.223:8888/v1  VA_CONC=8
+#   VA_HOST=aime_rsi_data  VA_REPO=...  VA_VENV=...  VA_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output  VA_INDEX=/mnt/aime_eval_ssd  VA_GATEWAYS=http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1  VA_CONC=8
 #
 # 不做的事：不装 Python 依赖、不下载字体（那些是环境初始化，见 DEPLOY.md §6，只做一次）。
 set -euo pipefail
@@ -48,7 +48,7 @@ case "$CH" in
     # 2026-11-09 起 AIME 的数据和代码都在 SSD 布局 /mnt/aime_eval_ssd（相对结构不变：code/、1_aime/eval_output）
     ROOT=${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}
     INDEX=${VA_INDEX:-/mnt/aime_eval_ssd}
-    GW=${VA_GATEWAYS:-http://10.99.116.223:8888/v1}
+    GW=${VA_GATEWAYS:-http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1}
     CONC=${VA_CONC:-8}
     ;;
   *) echo "渠道只能是 wencai 或 aime：$CH" >&2; exit 2 ;;
@@ -103,7 +103,7 @@ export CLUSTER_CONCURRENCY=$CONC
 export CLUSTER_GATEWAYS="$GW"
 export EVAL_GATEWAY_API_KEY=dummy
 # 网关/内网 git 不走公司 squid（DEPLOY.md §5.2）
-export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,localhost,127.0.0.1"
+export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.248.72.73,10.248.72.71,localhost,127.0.0.1"
 export no_proxy="\$NO_PROXY"
 EOF
 put "$REPO/.deploy/env.sh" "$TMP"

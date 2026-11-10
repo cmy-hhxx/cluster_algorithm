@@ -224,7 +224,7 @@ cluster_algorithm/
 | 跑在哪 | 归类怎么执行 | 速度 |
 |---|---|---|
 | **乌兰（问财，正式）** | `run.sh classify` → `bin/classify.py` 直调两个内网网关 | 12 并发（容器 8 核 / 16 GiB） |
-| **弗吉尼亚（AIME）** | 同上（网关 `http://10.99.116.223:8888/v1`，2026-11-09 开通） | 8 并发（容器 6 核 / 64 GiB） |
+| **弗吉尼亚（AIME）** | 同上（网关 `http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1`，2026-11-10 切换） | 8 并发（容器 6 核 / 64 GiB） |
 | 本地（2026-11 联调） | DSH 子代理逐片判，按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` | 8–12 并发，2,640 条约 25 分钟 |
 
 增量不会全量重跑：新条目先 `ingest → chunk → classify` 到 `run_delta`，再 `merge_runs` 并入既有 run（去重键 `session_id+trace_id+json_path`），最后 `finish`。
