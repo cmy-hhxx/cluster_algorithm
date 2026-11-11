@@ -10,9 +10,10 @@ CMD=${1:?usage: run.sh init|classify|finish ...}
 shift
 case "$CMD" in
   init)
-    SRC=${1:?src}; RUN=${2:?run}; CASES=${3:-}
+    SRC=${1:?src}; RUN=${2:?run}; CASES=${3:-}; CHANNEL=${4:-}
     python3 "$HERE/bin/taxonomy_lint.py" >/dev/null || { echo "taxonomy lint failed; run python3 bin/taxonomy_lint.py" >&2; exit 1; }
-    python3 "$HERE/bin/cluster.py" ingest --input "$SRC" ${CASES:+--cases "$CASES"} --out "$RUN"
+    python3 "$HERE/bin/cluster.py" ingest --input "$SRC" ${CASES:+--cases "$CASES"} \
+      ${CHANNEL:+--channel "$CHANNEL"} --out "$RUN"
     python3 "$HERE/bin/cluster.py" chunk --work "$RUN" --size 200
     echo
     echo "下一步：./run.sh classify $RUN"

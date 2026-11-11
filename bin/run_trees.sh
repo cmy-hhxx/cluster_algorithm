@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 按渠道跑聚类。渠道、数据根都由环境变量/参数决定，树由目录自动发现。
-#   全量：init → classify → finish → make_src_map → 拷到 <交付目录>
+#   全量：init → classify → finish → 拷到 <交付目录>（4.4 起不再产出 src_map，定位只认 trace_id/session_id）
 #   增量：ingest → make_delta（只取未归类）→ chunk → classify → merge → finish → 交付 → 索引
 #
 # 两个渠道分开跑（2026-11-03 起，各一台机器）：
@@ -12,7 +12,7 @@
 #   树由 bin/discover_trees.py 扫目录发现，新增 model 不用改代码。
 #
 # 根怎么定（优先级从高到低）：
-#   1) 环境变量 WENCAI_ROOT / AIME_ROOT / CASE_INDEX_ROOT（写在 .deploy/env.sh 里）
+#   1) 环境变量 WENCAI_ROOT / AIME_ROOT / *_CASES_ROOT / CASE_INDEX_ROOT（写在 .deploy/env.sh 里）
 #   2) 位置参数 <datasets_root>：问财 <DS>/0_wencai/eval_output、AIME <DS>/1_aime/eval_output，
 #      索引写 <DS>（拆分前的单根布局仍可用）
 #
@@ -59,11 +59,18 @@ if [[ -n "$DS" ]]; then
   WENCAI_ROOT=${WENCAI_ROOT:-$DS/0_wencai/eval_output}
   AIME_ROOT=${AIME_ROOT:-$DS/1_aime/eval_output}
   CASE_INDEX_ROOT=${CASE_INDEX_ROOT:-$DS}
+  WENCAI_CASES_ROOT=${WENCAI_CASES_ROOT:-$DS/0_wencai/eval_input}
+  AIME_CASES_ROOT=${AIME_CASES_ROOT:-$DS/1_aime/eval_input}
 fi
 CH=${CH_FLAG:-${CLUSTER_CHANNEL:-auto}}
 
 WORK="$ROOT/runs"
 VER=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])")
+# 规整后的输入根（eval_input，trace 粒度）：只提供 question/session_id/request_time，不含 problem
+if [[ "$CH" == "wencai" ]]; then CASES_ROOT=${WENCAI_CASES_ROOT:-}; elif [[ "$CH" == "aime" ]]; then CASES_ROOT=${AIME_CASES_ROOT:-}; else CASES_ROOT=""; fi
+CASES_INDEX=""
+[[ -n "$CASES_ROOT" && -n "${CASE_INDEX_ROOT:-}" ]] && CASES_INDEX="$CASE_INDEX_ROOT/cases_${CH}.jsonl"
+if [[ "$CH" == "wencai" ]]; then ART_ROOT=${WENCAI_ROOT:-}; elif [[ "$CH" == "aime" ]]; then ART_ROOT=${AIME_ROOT:-}; else ART_ROOT=""; fi
 LEDGER="$WORK/_runs.jsonl"
 
 # 同一时刻只允许一批在跑（守护与手动撞车时，后到的直接让路）
@@ -102,6 +109,12 @@ ROWS=$(python3 bin/discover_trees.py --channel "$CH" \
   ${AIME_ROOT:+--aime-root "$AIME_ROOT"} \
   --staging "$WORK/_src") || { echo "树发现失败（channel=${CH}，WENCAI_ROOT=${WENCAI_ROOT:-未设}，AIME_ROOT=${AIME_ROOT:-未设}）" >&2; exit 3; }
 
+if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
+  echo "压 case 身份索引（eval_input → trace_id）..."
+  python3 bin/build_cases_index.py --channel "$CH" --root "$CASES_ROOT" --out "$CASE_INDEX_ROOT" 2>&1 | sed 's/^/  /' \
+    || { echo "WARN cases 索引构建失败：ingest 将退回归因自带的 question/session（无行号/路径，但可能缺问句）" >&2; }
+fi
+
 selected() { [[ -z "$ONLY" ]] && return 0; [[ ",$ONLY," == *",$1,"* ]]; }
 baseline() {
   local t=$1
@@ -132,7 +145,8 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   echo "  输入：$src"
 
   if [[ $DRY -eq 1 ]]; then
-    python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_dry" | tail -1
+    python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_dry" \
+      ${CASES_INDEX:+--cases "$CASES_INDEX"} ${CH:+--channel "$CH"} | tail -1
     python3 bin/cluster.py chunk --work "$WORK/$t/run_dry" --size 60
     echo "[dry-run] 已 ingest+chunk 到 $WORK/$t/run_dry，未归类"
     return 0
@@ -149,7 +163,8 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     mode=incremental
     echo "  模式：增量（基线 $(nitems "$base") 条）"
     rm -rf "$WORK/$t/run_delta"        # 上一次可能被中途杀掉，清掉避免复用半成品判定
-    python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_new" | tail -1
+    python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_new" \
+      ${CASES_INDEX:+--cases "$CASES_INDEX"} ${CH:+--channel "$CH"} | tail -1
     python3 bin/make_delta.py --old "$base" --new "$WORK/$t/run_new" --out "$WORK/$t/run_delta" | tail -1
     delta=$(python3 -c "import json;print(json.load(open('$WORK/$t/run_delta/stats.json'))['delta'])")
     if [[ "$delta" == "0" ]]; then
@@ -171,7 +186,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     [[ $INC -eq 1 ]] && echo "  模式：全量（尚无基线，自动建基线）"
     # 全量必须干净：旧 assign/*.out.jsonl 若 seq 恰好对得上，classify 会误判「已完成」而复用旧判定
     rm -rf "$WORK/$t/run"
-    ./run.sh init "$src" "$WORK/$t/run"
+    ./run.sh init "$src" "$WORK/$t/run" "$CASES_INDEX" "$CH"
     ./run.sh classify "$WORK/$t/run" --concurrency "$CONC"
     ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
     rm -rf "$WORK/$t/run_merged" "$WORK/$t/run_delta" "$WORK/$t/run_new"
@@ -180,7 +195,6 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     delta=$n
   fi
 
-  python3 bin/make_src_map.py --run "$final" --out "$out" --version "$VER"
   v=$(python3 -c "import json;d=json.load(open('$out/verify.json'));print(f\"err={d['errors']},mismatch={d['locator_mismatch']}\")")
   if [[ $DELIVER -eq 1 ]]; then
     mkdir -p "$deliver"
@@ -215,11 +229,10 @@ if [[ -n "$FAILED_TREES" ]]; then
 fi
 if [[ $DELIVER -eq 1 && $DRY -eq 0 ]]; then
   if [[ -n "${CASE_INDEX_ROOT:-}" ]]; then
-    echo "重建 bad_case 索引（渠道 ${CH}）..."
-    python3 bin/build_case_index.py --channel "$CH" --out "$CASE_INDEX_ROOT" \
-      ${WENCAI_ROOT:+--wencai-root "$WENCAI_ROOT"} \
-      ${AIME_ROOT:+--aime-root "$AIME_ROOT"} 2>&1 | sed 's/^/  /' || \
-      echo "  WARN 索引重建失败，但树本身已交付（下次跑会重试）"
+    echo "重建 badcase / goldencase 清单（渠道 ${CH}）..."
+    python3 bin/build_case_lists.py --channel "$CH" --attr-root "$ART_ROOT" \
+      --out "$CASE_INDEX_ROOT" ${CASES_INDEX:+--cases-root "$CASES_INDEX"} 2>&1 | sed 's/^/  /' || \
+      echo "  WARN 清单重建失败，但树本身已交付（下次跑会重试）"
   else
     echo "WARN 没有 CASE_INDEX_ROOT，跳过 bad_case 索引重建"
   fi

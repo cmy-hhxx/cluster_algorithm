@@ -105,7 +105,25 @@ L4 细分  —— 仅对达标的大叶子下钻（§5）
 
 - **主口径 = 会话数**：同一会话在同一叶子只算 1。一个用户踩一次算一次，不被“问题多的会话”放大。
 - **附列 = 条目数**：保留原始密度，用于看模型的输出习惯。
-- 两者都要给，但**排序与决策看会话数**。
+- **case = trace_id**（2026-11-11 起）：`eval_input` 一行一 trace，一个 case 就是一次提问实例；
+  聚类条目、badcase、goldencase 都以它为身份，不再用文件名/行号。
+- 三档都要给，但**排序与决策看会话数**。
+
+### 6.1 badcase / goldencase（2026-11-11 起）
+
+每轮聚完在 `CASE_INDEX_ROOT` 下产出两份清单（一行一个 case，按 `request_time` 排序）：
+
+| 文件 | 入选口径 | 用途 |
+|---|---|---|
+| `badcase_<渠道>.jsonl` | 该 case 有任意 problem 的 `severity ∈ {P0, P1}` | 优先复现/修复 |
+| `goldencase_<渠道>.jsonl` | 该 case 的 `problem` 为空 | 回归对照，防止修坏 |
+
+- P2–P4 的 case **不进**这两份，只留在聚类树里看分布。
+- 字段只有可追溯信息：`bad_case_id / channel / model / question / session_id / trace_id / batch_id /
+  request_time / severity / severity_counts / problem_count / first_seen / last_seen`——
+  没有行号、没有绝对路径；拿 `trace_id` 回 `eval_input` 就能还原完整 messages。
+- 身份索引 `cases_<渠道>.jsonl` 每轮先压一次（`bin/build_cases_index.py`，trace_id → question/session），
+  聚类 `ingest` 与清单生成都读它。
 
 ## 7. 横切标签
 
@@ -182,7 +200,10 @@ cluster_algorithm/
 │   ├── classify.py        批量归类（直调网关；--effort none/low；--consensus N）
 │   ├── discover_trees.py  扫目录发现要聚类的树（渠道 × 输入目录），AIME 顺带做日常+流失 staging
 │   ├── run_trees.sh       按渠道跑全量/增量 → 交付 → 重建索引
-│   ├── build_case_index.py  按渠道生成 bad_case 索引
+│   ├── build_cases_index.py  eval_input → cases_<渠道>.jsonl（trace_id 身份索引）
+│   ├── build_case_lists.py   生成 badcase_<渠道>.jsonl / goldencase_<渠道>.jsonl
+│   ├── make_src_map.py      （4.4 起停用）旧基线的绝对路径回放映射
+│   ├── build_case_index.py  （4.4 起停用）旧 bad_case 索引
 │   ├── channel_daemon.sh  单渠道增量常驻循环（tmux）
 │   ├── watch_daemon.sh    看门狗：主循环被 OOM 杀掉时拉起
 │   ├── preflight.sh       开跑前预检（OK / BLOCKED / FAIL）

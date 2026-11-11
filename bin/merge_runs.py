@@ -7,7 +7,11 @@
 
 每个 batch run 必须已经有完整的 assign/*.out.jsonl（即已经 classify 过）。
 合并后写 items.jsonl / locators.jsonl / assign/merged.out.jsonl / stats.json。
-去重键默认 (session_id, trace_id, problem_id)，重复条目保留最早批次的那条。
+去重键默认 (trace_id, problem_index)，重复条目保留最早批次的那条。
+
+2026-11-11 起身份只认 trace_id：eval_input 一行一 trace，同一 trace 在多个输入文件里有快照，
+行号与绝对路径不可复现，因此 items/locators 里不再有 src_path/file/line/json_path，
+去重也不能再用 json_path。
 """
 import argparse, glob, json, os, sys
 
@@ -17,21 +21,10 @@ def load_jsonl(path):
         return [json.loads(l) for l in fh if l.strip()]
 
 
-def rel_file(path):
-    """交付物里只存相对路径：「父目录名/文件名」（daily/xxx.jsonl、lost/xxx.jsonl）。
-
-    绝对路径一旦写进基线，换机器/换挂载点就会失效（2026-11 以前的老问题：交付的
-    item_index/cluster_tree 里全是旧机器的 /mnt/fin_bench/... 绝对路径）。原始绝对路径
-    仍保留在 items.jsonl 的 src_path 里，供 make_src_map.py 生成回放映射。
-    """
-    d, b = os.path.split(path or "")
-    return f"{os.path.basename(d)}/{b}" if d else b
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--dedup-key", default="session_id,trace_id,json_path")
+    ap.add_argument("--dedup-key", default="trace_id,problem_index")
     ap.add_argument("--allow-partial", action="store_true",
                     help="批次未分类完时，只合并已有归类的条目（默认报错）")
     ap.add_argument("batches", nargs="+")
@@ -70,15 +63,8 @@ def main():
             seq += 1
             seen[key] = seq
             it = dict(it); it["seq"] = seq
-            # src_path 统一成绝对路径（相对路径按当前工作目录，即仓库根解析）；file 始终保留相对形式
-            sp = it.get("src_path", "")
-            if sp and not os.path.isabs(sp):
-                sp = os.path.normpath(os.path.join(os.getcwd(), sp))
-                it["src_path"] = sp
-            it["file"] = rel_file(sp or it.get("file", ""))
             items_out.append(it)
             loc = dict(locs[s]); loc["seq"] = seq
-            loc["file"] = rel_file(sp or loc.get("file", ""))
             locs_out.append(loc)
             r = assign[s]
             assign_out.append({"seq": seq, "path": r["path"], "edge": bool(r.get("edge", False))})

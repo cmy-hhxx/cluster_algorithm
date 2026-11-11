@@ -9,13 +9,13 @@
     merge_runs --out <run_merged> <既有 run> <run_delta>
     finish <run_merged>
 
-去重键与 merge_runs 保持同一口径：(session_id, trace_id, json_path)。
+去重键与 merge_runs 保持同一口径：(trace_id, problem_index)——身份只认 trace，行号/绝对路径已废弃。
 
 用法：python3 bin/make_delta.py --old runs/<t>/run --new runs/<t>/run_new --out runs/<t>/run_delta
 """
 import argparse, collections, json, os, sys
 
-KEY = ('session_id', 'trace_id', 'json_path')
+KEY = ('trace_id', 'problem_index')
 
 
 def load(path):

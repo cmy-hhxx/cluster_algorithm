@@ -321,12 +321,17 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 - **原因**：数据里出现新工具（`.sh` 脚本、`view_skill`、`pptx` 等）没有登记进 `taxonomy/components.json`。
 - **处理**：`bin/cluster.py` 会把未登记的 raw component 写进 `<run>/unregistered.json` 并中止——按提示登记，别加 catch-all 桶。2026-11-03 全量扫描已 0 阻塞。
 
-### 7.7 换了数据集路径后 `src_map.json` 溯源断裂
+### 7.7 换了数据集路径后溯源断裂（4.4 起已从根上取消）
 - **现象**：`cluster/<model>/src_map.json` 的 `src_root`/映射值指向一个已经不存在的快照目录；`cluster_tree.json` 里全是旧机器的绝对路径。
 - **原因**：旧版 `merge_runs` 会把绝对路径写进基线并带进交付物；数据一换挂载点（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁到 `/mnt/aime_eval_ssd`）就全断。
 - **处理**：
   - 交付物自 2026-11-09 起只存相对路径：`item_index.jsonl.file`、`cluster_tree.json` 的 `src_file` 都是 `daily/xxx.jsonl` 这种「父目录名/文件名」，绝对路径只保留在 `src_map.json`（`src_root` = 源文件公共根 + `files` 映射）里，换机器只改 `AIME_ROOT` 即可。
   - 老基线换机器时仍先跑 `bin/rebase_paths.py --run runs --datasets <新根> --repo <新仓库>`（它会把 `src_path` 重映射、把老 `file` 绝对路径压回相对形式），再增量；每次交付都会重跑 `bin/make_src_map.py`。
+
+  - **2026-11-11 / 4.4.0 起本条作废**：交付物里不再有 `src_file / file / line / json_path / src_path`，
+    `src_map.json` 停出；定位只认 `trace_id + session_id`（`batch_id` 仅作人类提示）。
+    因此换挂载点、换机器、同一条 trace 在 daily/lost 多个文件里重复出现，都不再影响溯源。
+    老基线（4.3 及以前）与新基线不兼容，必须全量重跑，不能直接增量。
 
 ### 7.8 继承别台的基线会 `verify` 断链
 - **现象**：拿乌兰的 AIME 基线到弗吉尼亚做增量，`verify` 报 `src not found`。
@@ -474,3 +479,33 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 | 用法 | `classify.py` 按网关列表轮询并在失败时切换下一台；两台都挂才会失败 |
 
 `.deploy/env.sh` 由 `./deploy_local.sh aime` 重新渲染即可，无需手改。旧网关地址保留在 `NO_PROXY` 里无副作用。
+
+## 14. 2026-11-11 4.4.0：输入规整为 eval_input + badcase/goldencase
+
+**输入变了**：上游把评测输入规整成 `1_aime/eval_input/`（trace 粒度，`0_daily_eval_input/`、
+`1_lost_user_eval/`、`2_task_eval/`；一行一条 trace，顶层 `case_id / trace_id / version / batch_id /
+versions / _source`，`meta.n_traces=1`），**里面没有 `problem`/`severity`**；归因仍在
+`eval_output/*attribution*.jsonl`（`turns[].problem[]` 带 `severity`）。所以聚类是「归因拿问题 +
+eval_input 拿身份/问句」两份 join。
+
+**为什么不能用行号和绝对路径**：规整后同一条 trace 会在 daily 与 lost 的多个文件里出现（迁移脚本
+只保留信息最全的一条），行号随文件重写而变；绝对路径换机器/换挂载点就失效。身份统一成
+`trace_id`（= 新 layout 的 `case_id`），另带 `session_id`。
+
+改动点：
+- `bin/build_cases_index.py`（新）：`eval_input → <CASE_INDEX_ROOT>/cases_<渠道>.jsonl`，每轮跑一次，
+  聚类 ingest 与清单生成都读这份（避免每次 ingest 重扫 64G）。
+- `bin/cluster.py`：`ingest` 支持 `--cases <cases_<渠道>.jsonl>`，item 只带 `batch_id / model / src_rel /
+  trace_id / session_id / question / severity`；`aggregate` 的 samples 与 `item_index` 同步改；
+  `verify` 不再回放文件，改校验 sample 的 `trace_id/session_id` 完整性。
+- `bin/merge_runs.py` / `bin/make_delta.py`：去重键 `(trace_id, problem_index)`。
+- `bin/build_case_lists.py`（新）：`badcase_<渠道>.jsonl`（P0/P1）+ `goldencase_<渠道>.jsonl`（无 problem），
+  字段见 README §6.1；P2–P4 不进清单。
+- `bin/run_trees.sh`：每轮先压 cases 索引 → 树循环（ingest 带 `--cases`）→ 去掉 `make_src_map` →
+  末尾改跑 `build_case_lists`；交付物从 12 件降到 11 件（少 `src_map.json`）。
+- `deploy_local.sh` / `bin/preflight.sh`：env 增加 `AIME_CASES_ROOT` / `WENCAI_CASES_ROOT`，
+  预检多一项「输入根」（缺了只 WARN，ingest 退回归因自带 question）。
+
+**迁移日操作**：停守护（先 `cluster-watch-aime` 再 `cluster-incr-aime`）→ 部署 4.4 → 手动全量重建
+`bin/run_trees.sh`（两棵树都要全量，老基线不兼容）→ 校验 `verify.json` 的 `errors=0`、
+`badcase/goldencase` 条数（AIME 抽样：P0/P1 约占 case 的 17%，无 problem 约占 11%）→ 再启守护。

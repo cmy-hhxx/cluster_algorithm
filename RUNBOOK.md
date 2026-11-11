@@ -5,6 +5,8 @@
 
 **第一件事是认渠道，位置固定**：问财的聚类在乌兰（`eval_data`）跑，AIME 的聚类在弗吉尼亚（`aime_rsi_data`）跑，不要在同一台机器上跑两个渠道。跨渠道的数据不合并、不对比，
 `bad_case_id` 的哈希里带渠道，两台机器各自只写自己的数据根和索引。
+2026-11-11 起 case 的身份是 `trace_id`（eval_input 一行一 trace）；每轮产出 `badcase_<渠道>.jsonl`（P0/P1）
+与 `goldencase_<渠道>.jsonl`（无 problem），见 README §6.1 与 DEPLOY §14。
 
 ## 0. 参数
 
@@ -27,7 +29,7 @@ python3 bin/cluster.py ingest --input $SRC --cases $CASES --out $RUN
 python3 bin/cluster.py chunk  --work $RUN --size 200
 ```
 
-看两个数：`bad_lines`（应为 0，非 0 说明源数据有坏行，先报告用户）、`components`（出现未映射的 component 要停下来确认，不要硬塞进现有环节）。
+看三个数：`bad_lines`（应为 0，非 0 说明源数据有坏行，先报告用户）、`components`（出现未映射的 component 要停下来确认，不要硬塞进现有环节）、`cases_missing`（归因里有、eval_input 里查不到身份的 trace 数；持续偏高说明输入根没覆盖全量日期）。
 
 ## 2. 归类（直调网关，默认 24 并发）
 
@@ -47,7 +49,7 @@ CLUSTER_REASONING=none ./run.sh classify $RUN --concurrency 24
 
 ```bash
 python3 bin/cluster.py aggregate --work $RUN --out $OUT --sessions-all <全量会话数>
-python3 bin/cluster.py verify    --work $RUN --out $OUT --src <源目录绝对路径>
+python3 bin/cluster.py verify    --work $RUN --out $OUT   # 4.4 起不读源文件：校验 trace_id/session_id 完整性
 ```
 
 `verify` 必须 `errors=0` 且 `locator_mismatch=0` 才能交付。

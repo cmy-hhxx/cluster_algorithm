@@ -162,6 +162,46 @@ def taxonomy(dir_=None):
 
 
 # ---------------------------------------------------------------- ingest
+def load_cases(root):
+    """case 身份表：trace_id -> question / session_id / request_time / batch_id / model。
+
+    两种输入都吃：
+      1) eval_input 原始记录（trace 粒度，有 meta + traces）；
+      2) build_cases_index.py 压出来的 cases_<渠道>.jsonl（扁平字段，聚类每轮读这份）。
+    2026-11-11 起问句和身份只认这套数据：同一 trace 在 daily/lost 多个文件里都有快照，
+    行号与绝对路径不可复现，一律不进交付物；归因只提供 problem + severity。
+    """
+    cases = {}
+    if not root:
+        return cases
+    paths = [root] if os.path.isfile(root) else sorted(
+        glob.glob(os.path.join(root, '**', '*.jsonl'), recursive=True))
+    for f in paths:
+        for line in read_lines(f):
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            tid = clean(r.get('trace_id') or r.get('case_id'))
+            if not tid:
+                continue
+            meta = r.get('meta') or {}
+            trs = r.get('traces')
+            tm = (trs[0].get('meta') or {}) if isinstance(trs, list) and trs and isinstance(trs[0], dict) else {}
+            cases[tid] = {
+                'case_id': clean(r.get('case_id') or tid),
+                'question': clean(r.get('question') or meta.get('question') or tm.get('question')
+                                  or tm.get('question_zh') or ''),
+                'session_id': clean(r.get('session_id') or meta.get('session_id') or tm.get('session_id') or ''),
+                'request_time': clean(r.get('request_time') or meta.get('request_time') or ''),
+                'batch_id': clean(r.get('batch_id') or ''),
+                'model': clean(r.get('model') or r.get('version') or tm.get('mode') or ''),
+            }
+    return cases
+
+
 def cmd_ingest(a):
     files = []
     if os.path.isdir(a.input):
@@ -171,22 +211,14 @@ def cmd_ingest(a):
     if not files:
         sys.exit(f'no jsonl under {a.input}')
 
-    cases = {}
-    for cf in (sorted(glob.glob(os.path.join(a.cases, '*.jsonl'))) if a.cases else []):
-        for line in read_lines(cf):
-            if not line.strip():
-                continue
-            try:
-                r = json.loads(line)
-            except Exception:
-                continue
-            tid = r.get('trace_id') or r.get('case_id')
-            cases[tid] = {'case_id': r.get('case_id'), 'question': clean((r.get('meta') or {}).get('question', ''))}
-
+    cases = load_cases(a.cases)
+    base_dir = a.input if os.path.isdir(a.input) else os.path.dirname(a.input)
     items, loc, bad = [], [], []
     seq = 0
+    joined = missed = 0
     for f in files:
-        base = os.path.basename(f)
+        rel = os.path.relpath(f, base_dir).replace(os.sep, '/')
+        model_dir = os.path.basename(os.path.dirname(f))
         channel = guess_channel(f) if a.channel == 'auto' else a.channel
         for ln, line in enumerate(read_lines(f), 1):
             if not line.strip():
@@ -194,18 +226,25 @@ def cmd_ingest(a):
             try:
                 rec = json.loads(line)
             except Exception as e:
-                bad.append({'file': base, 'line': ln, 'error': str(e)[:120]})
+                bad.append({'file': rel, 'line': ln, 'error': str(e)[:120]})
                 continue
             smeta = rec.get('session_meta') or {}
-            sid = smeta.get('session_id') or ''
-            uid = clean(smeta.get('user_id'))
-            question = clean(smeta.get('question'))
-            rtime = clean(smeta.get('request_time'))
-            bid = bad_case_id(channel, question, rtime)
+            src_rel = clean((rec.get('_source') or {}).get('original_file')) or rel
             for ti, t in enumerate(rec.get('turns') or []):
                 meta = t.get('meta') or {}
-                tid = meta.get('trace_id') or ''
-                ic = cases.get(tid) or {}
+                tid = clean(meta.get('trace_id'))
+                c = cases.get(tid) or {}
+                if c:
+                    joined += 1
+                else:
+                    missed += 1
+                question = c.get('question') or clean(smeta.get('question'))
+                sid = c.get('session_id') or clean(smeta.get('session_id'))
+                rtime = c.get('request_time') or clean(smeta.get('request_time'))
+                batch = c.get('batch_id') or clean(rec.get('batch_id')) or (rtime[:10] if rtime else '')
+                model = c.get('model') or model_dir
+                cid = c.get('case_id') or tid
+                bid = bad_case_id(channel, question, rtime)
                 for pi, p in enumerate(as_list(t.get('problem'))):
                     if not isinstance(p, dict):
                         continue
@@ -213,14 +252,15 @@ def cmd_ingest(a):
                     tool, comp_label, stage = canon_component(clean(p.get('component')))
                     cent = component_map().get(clean(p.get('component'))) or {}
                     it = {
-                        'seq': seq, 'date': (smeta.get('request_time') or '')[:10],
-                        'file': f'{os.path.basename(os.path.dirname(f))}/{base}' if os.path.dirname(f) else base,
-                        'src_path': f, 'line': ln, 'json_path': f'turns[{ti}].problem[{pi}]',
-                        'case_id': ic.get('case_id') or tid, 'trace_id': tid, 'session_id': sid,
-                        'user_id': uid, 'question': question, 'request_time': rtime,
-                        'request_time_iso': iso_time(rtime), 'bad_case_id': bid, 'channel': channel,
+                        'seq': seq, 'date': batch or (rtime[:10] if rtime else ''),
+                        'batch_id': batch, 'model': model, 'src_rel': src_rel,
+                        'case_id': cid, 'trace_id': tid, 'session_id': sid,
+                        'user_id': clean(smeta.get('user_id')), 'question': question,
+                        'request_time': rtime, 'request_time_iso': iso_time(rtime),
+                        'bad_case_id': bid, 'channel': channel,
                         'turn_index': ti, 'problem_index': pi,
                         'problem_id': clean(p.get('problem_id')),
+                        'severity': clean(p.get('severity')), 'severity_reason': clean(p.get('severity_reason')),
                         'component': tool,
                         'component_label': comp_label,
                         'component_raw': clean(p.get('component')),
@@ -233,10 +273,10 @@ def cmd_ingest(a):
                         'task': clean(meta.get('task')), 'difficulty': clean(meta.get('difficulty')),
                     }
                     items.append(it)
-                    loc.append({k: it[k] for k in ('seq', 'date', 'file', 'line', 'json_path', 'case_id',
+                    loc.append({k: it[k] for k in ('seq', 'date', 'batch_id', 'model', 'src_rel', 'case_id',
                                                    'trace_id', 'session_id', 'user_id', 'bad_case_id',
-                                                   'request_time', 'problem_id', 'problem_index',
-                                                   'component', 'label', 'turn_index')})
+                                                   'question', 'request_time', 'problem_id', 'problem_index',
+                                                   'component', 'label', 'severity', 'turn_index')})
     os.makedirs(a.out, exist_ok=True)
     with open(os.path.join(a.out, 'items.jsonl'), 'w', encoding='utf-8') as fh:
         for it in items:
@@ -245,11 +285,12 @@ def cmd_ingest(a):
         for r in loc:
             fh.write(json.dumps(r, ensure_ascii=False) + '\n')
     stats = {
-        'files': [os.path.basename(f) for f in files],
+        'files': [os.path.relpath(f, base_dir) for f in files],
         'records': len({i['trace_id'] for i in items}),
         'sessions': len({i['session_id'] for i in items}),
         'cases': len({i['case_id'] for i in items}),
         'items': len(items),
+        'case_joined': joined, 'case_missing': missed,
         'bad_lines': bad[:20], 'bad_line_count': len(bad),
         'components': dict(collections.Counter(i['component'] for i in items).most_common()),
     }
@@ -263,7 +304,8 @@ def cmd_ingest(a):
         sys.exit('未登记 component（已写入 unregistered.json）：' + ', '.join(unknown) +
                  '\n请先登记到 taxonomy/components.json 并指定所属段，再重跑 ingest。')
     print(f"items={len(items)} traces={stats['records']} sessions={stats['sessions']} "
-          f"components={len(stats['components'])} bad_lines={len(bad)}")
+          f"components={len(stats['components'])} bad_lines={len(bad)} "
+          f"cases_joined={joined} cases_missing={missed}")
 
 
 # ---------------------------------------------------------------- chunk
@@ -348,8 +390,10 @@ def cmd_aggregate(a):
         L, it = loc[s], items[s]
         return {'seq': s, 'case_id': L['case_id'], 'bad_case_id': L.get('bad_case_id', ''),
                 'user_id': L.get('user_id', ''), 'session_id': L['session_id'], 'trace_id': L['trace_id'],
-                'date': L['date'], 'src_file': L['file'], 'src_line': L['line'], 'json_path': L['json_path'],
+                'batch_id': L.get('batch_id', ''), 'model': L.get('model', ''),
+                'src_rel': L.get('src_rel', ''), 'question': (L.get('question') or '')[:120],
                 'problem_id': L['problem_id'], 'problem_index': L['problem_index'],
+                'severity': L.get('severity', ''),
                 'component': it['component'], 'label': it['label'], 'definition': it['definition'][:k]}
 
     def sample(seqs, n=5):
@@ -485,7 +529,7 @@ def cmd_aggregate(a):
             'low_sample_threshold': LOW_SAMPLE,
             'low_sample_rule': '条目数低于阈值的叶子保留在树中用于定位，但不参与排名比较（统计不稳定）',
             'tags': '横切标签，一条可多标签，不改变树的互斥性',
-            'traceability': {'principle': '每个叶子带 samples，每条带 原文件+行号+JSON 路径',
+            'traceability': {'principle': '每个叶子带 samples，每条带 trace_id + session_id（可回 eval_input 还原现场），不再带行号/绝对路径',
                              'item_index': 'item_index.jsonl',
                              'recall_tool': 'python3 bin/cluster.py recall --work <work> --node <id>'},
         },
@@ -552,30 +596,19 @@ def cmd_verify(a):
         errs.append('duplicate seq')
     if collections.Counter(r['path'] for r in idx) != seen:
         errs.append('index path counts != tree counts')
-    # locator replay
-    cache, mism = {}, 0
-    for r in idx[:0]:
-        pass
+    # 可追溯性自检：每条 sample 必须带 trace_id + session_id（回 eval_input 即可还原现场），
+    # 且 trace_id 必须出现在 item_index 里。行号/绝对路径已从交付物移除，这里不再做文件回放。
+    idx_tids = {r['trace_id'] for r in idx if r.get('trace_id')}
+    mism = 0
     for l3 in [l3 for l1 in tree['tree']['children'] for l2 in l1['children'] for l3 in l2['children']]:
         for s in l3['samples']:
-            f = s['src_file'] if os.path.isabs(s.get('src_file', '')) else os.path.join(a.src, s['src_file'])
-            if not os.path.exists(f):
-                cand = glob.glob(os.path.join(a.src, '**', os.path.basename(s['src_file'])), recursive=True)
-                f = cand[0] if cand else f
-            if not os.path.exists(f):
-                errs.append(f'src not found {s["src_file"]}')
-                continue
-            if f not in cache:
-                cache[f] = read_lines(f)
-            try:
-                rec = json.loads(cache[f][s['src_line'] - 1])
-                turn = rec['turns'][int(s['json_path'].split('[')[1].split(']')[0])]
-                probs = as_list(turn.get('problem'))
-                p = probs[s['problem_index']]
-                if p['label'] != s['label']:
-                    mism += 1
-            except Exception as e:
-                errs.append(f'locator broken seq={s["seq"]}: {e}')
+            if not s.get('trace_id') or not s.get('session_id') or s.get('trace_id') not in idx_tids:
+                mism += 1
+                errs.append(f"sample 缺可追溯信息：seq={s.get('seq')} trace={s.get('trace_id')!r}")
+    for r in idx:
+        if not r.get('trace_id') or not r.get('session_id'):
+            errs.append(f"item_index 缺 trace_id/session_id：seq={r.get('seq')}")
+            break
     jdump({'leaves': len(seen), 'total': total, 'locator_mismatch': mism,
            'errors': len(errs), 'items': errs[:50]}, os.path.join(a.out, 'verify.json'))
     print(f'leaves={len(seen)} total={total} locator_mismatch={mism} errors={len(errs)}')
@@ -796,8 +829,10 @@ def cmd_recall(a):
     cache = {}
     for r in hits[:a.limit]:
         print('-' * 96)
-        print(f"[{r['seq']}] {r['date']}  {r['file']}:{r['line']}  {r['json_path']}")
-        print(f"      case={r['case_id']} trace={r['trace_id']} session={r['session_id']}")
+        print(f"[{r['seq']}] {r['date']}  batch={r.get('batch_id','')}  {r.get('src_rel','')}")
+        print(f"      case={r['case_id']} trace={r['trace_id']} session={r['session_id']} "
+              f"severity={r.get('severity','')}")
+        print(f"      question: {(r.get('question') or '')[:200]}")
         print(f"      component={r['component']}  path={r['path']}  tags={','.join(r.get('tags', []))}")
         print(f"      label: {r['label']}")
         if a.full:
@@ -818,7 +853,8 @@ def main():
     p = sub.add_parser('aggregate'); p.add_argument('--work', required=True); p.add_argument('--out', required=True)
     p.add_argument('--sessions-all', type=int, default=0, dest='sessions_all'); p.set_defaults(fn=cmd_aggregate)
     p = sub.add_parser('verify'); p.add_argument('--work', required=True); p.add_argument('--out', required=True)
-    p.add_argument('--src', required=True); p.set_defaults(fn=cmd_verify)
+    # --src 4.4 起不再用于文件回放（只认 trace_id/session_id），保留参数避免旧脚本报错
+    p.add_argument('--src', default=''); p.set_defaults(fn=cmd_verify)
     p = sub.add_parser('report'); p.add_argument('--out', required=True); p.set_defaults(fn=cmd_report)
     p = sub.add_parser('chart'); p.add_argument('--out', required=True)
     p.add_argument('--font', default=os.environ.get('CLUSTER_CHART_FONT', '/System/Library/Fonts/Hiragino Sans GB.ttc'))

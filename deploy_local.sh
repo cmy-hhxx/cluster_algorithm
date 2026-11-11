@@ -37,6 +37,7 @@ case "$CH" in
     REPO=${WL_REPO:-/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm}
     VENV=${WL_VENV:-$REPO/.venv}
     ROOT=${WL_ROOT:-/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output}
+    CASES=${WL_CASES:-$(dirname "${WL_ROOT:-/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output}")/eval_input}
     INDEX=${WL_INDEX:-/mnt/fin_bench/code_and_clean_data/datasets}
     GW=${WL_GATEWAYS:-http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1}
     CONC=${WL_CONC:-12}
@@ -47,6 +48,8 @@ case "$CH" in
     VENV=${VA_VENV:-/opt/cluster-venv}
     # 2026-11-09 起 AIME 的数据和代码都在 SSD 布局 /mnt/aime_eval_ssd（相对结构不变：code/、1_aime/eval_output）
     ROOT=${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}
+    # 2026-11-11 起规整后的输入在 <渠道>/eval_input（trace 粒度，提供 question/session_id）
+    CASES=${VA_CASES:-$(dirname "${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}")/eval_input}
     INDEX=${VA_INDEX:-/mnt/aime_eval_ssd}
     GW=${VA_GATEWAYS:-http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1}
     CONC=${VA_CONC:-8}
@@ -65,6 +68,7 @@ echo "渠道：$CH -> $HOST:$REPO"
 echo "版本：$VER  代码指纹：${CODE_SHA:0:16}  并发：$CONC"
 [[ -n "$GW" ]] && echo "网关：$GW" || echo "网关：（留空，等开通）"
 echo "数据根：$ROOT"
+echo "输入根：$CASES"
 echo "索引目录：$INDEX"
 if (( DRY )); then echo; echo "[dry-run] 只打印，不做任何传输"; exit 0; fi
 
@@ -98,6 +102,8 @@ export TZ=Asia/Shanghai
 export CLUSTER_CHANNEL=$CH
 export WENCAI_ROOT="$([[ "$CH" == wencai ]] && echo "$ROOT")"
 export AIME_ROOT="$([[ "$CH" == aime ]] && echo "$ROOT")"
+export WENCAI_CASES_ROOT="$([[ "$CH" == wencai ]] && echo "$CASES")"
+export AIME_CASES_ROOT="$([[ "$CH" == aime ]] && echo "$CASES")"
 export CASE_INDEX_ROOT="$INDEX"
 export CLUSTER_CONCURRENCY=$CONC
 export CLUSTER_GATEWAYS="$GW"
@@ -120,6 +126,7 @@ cat > "$TMP" <<EOF
  "deployed_at": "$NOW",
  "deployed_from": "$(hostname -s)",
  "data_root": "$ROOT",
+ "cases_root": "$CASES",
  "index_root": "$INDEX",
  "gateways": "$GW"
 }

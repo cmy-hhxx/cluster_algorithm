@@ -72,10 +72,19 @@ if [[ "$CH" == "aime" || "$CH" == "auto" ]] && [[ -n "${AIME_ROOT:-}" ]]; then
   else bad "AIME 根不存在：$AIME_ROOT"; fi
 fi
 (( HR > 0 )) || { [[ ${#BLOCKED[@]} -gt 0 ]] || bad "渠道 ${CH} 没有可用的数据根（检查 WENCAI_ROOT / AIME_ROOT）"; }
+# 规整后的输入根（eval_input，trace 粒度）：只提供 question/session_id，缺了不阻塞，只降级
+if [[ ( "$CH" == "wencai" || "$CH" == "auto" ) && -n "${WENCAI_CASES_ROOT:-}" ]]; then
+  [[ -d "$WENCAI_CASES_ROOT" ]] && ok "问财输入根 ${WENCAI_CASES_ROOT}" \
+    || warn "问财输入根不存在：$WENCAI_CASES_ROOT（ingest 退回归因自带 question）"
+fi
+if [[ ( "$CH" == "aime" || "$CH" == "auto" ) && -n "${AIME_CASES_ROOT:-}" ]]; then
+  [[ -d "$AIME_CASES_ROOT" ]] && ok "AIME 输入根 ${AIME_CASES_ROOT}" \
+    || warn "AIME 输入根不存在：$AIME_CASES_ROOT（ingest 退回归因自带 question）"
+fi
 if [[ -n "${CASE_INDEX_ROOT:-}" ]]; then
   [[ -d "$CASE_INDEX_ROOT" ]] && ok "索引目录 ${CASE_INDEX_ROOT}" || warn "索引目录不存在，会新建：$CASE_INDEX_ROOT"
 else
-  warn "没设 CASE_INDEX_ROOT：跑完后不会重建 bad_case 索引"
+  warn "没设 CASE_INDEX_ROOT：跑完后不会重建 badcase/goldencase 清单"
 fi
 
 echo "[5/8] 归类网关"

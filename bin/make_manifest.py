@@ -33,7 +33,7 @@ man = {
     'files': [{'name': f, 'bytes': os.path.getsize(os.path.join(a.out, f)), 'sha256_16': sha16(os.path.join(a.out, f))}
               for f in files if os.path.exists(os.path.join(a.out, f))],
     'notes': ['主口径为会话数，条目数作附列。',
-              '每个叶子内嵌 samples，含 case_id/session_id/trace_id/src_file/src_line/json_path。',
+              '每个叶子内嵌 samples，含 case_id/session_id/trace_id（回 eval_input 还原现场）；不再带行号/绝对路径。',
               'item_index.jsonl 为全量索引，可用 bin/cluster.py recall 召回。'],
 }
 json.dump(man, open(os.path.join(a.out, 'MANIFEST.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
