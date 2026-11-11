@@ -24,7 +24,9 @@ REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模
 
 TEMPERATURE = None
 _lock = threading.Lock()
-_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0}
+_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "fallback": 0}
+_INV = None
+_fallbacks = []
 
 
 def log(msg):
@@ -117,6 +119,51 @@ def build_prompt(l1, chunk, items, rules, inv):
 不要解释、不要代码块、不要额外字段。每条都必须有输出，seq 必须与输入一一对应。"""
 
 
+class InvalidOutput(RuntimeError):
+    """模型给的 path 全都不在本环节合法叶子里（可兜底，不该拖垮整棵树）。"""
+
+    def __init__(self, msg, rows=None):
+        super().__init__(msg)
+        self.rows = rows or []
+
+
+def _inventory():
+    global _INV
+    if _INV is None:
+        _INV = json.load(open(os.path.join(ROOT, 'taxonomy', 'inventory.json'), encoding='utf-8'))
+    return _INV
+
+
+def fallback_rows(l1, chunk, items, valid, rows, err):
+    """兜底：模型给不出合法 path 时，按 component（再看机制）落本环节最相近的合法叶，全部标 edge。
+
+    只用于「重试 + 二分都救不回来」的少数条目；同时写进 <work>/unresolved_*.json 方便人工复核。
+    合法 path 缺失是 taxonomy 缺叶或模型幻觉，不应该让整棵树 rc=1（2026-11-11 aime_expert 事故）。
+    """
+    by_comp, ids = {}, sorted(valid)
+    for n in _inventory()['nodes']:
+        if n['id'] in valid:
+            for c in n.get('components') or []:
+                by_comp.setdefault(c, []).append(n['id'])
+    got = {str(r.get('seq')): str(r.get('path', '')) for r in rows}
+    out, recs = [], []
+    for it in items:
+        mp = got.get(str(it['seq']), '')
+        bits = mp.split('.')
+        mech = bits[1] if len(bits) >= 2 else ''
+        cands = by_comp.get(it.get('component') or '', [])
+        same = [c for c in cands if c.split('.')[1] == mech]
+        path = (same or cands or ids or [''])[0]
+        out.append({'seq': it['seq'], 'path': path, 'edge': True})
+        recs.append({'chunk': chunk, 'seq': it['seq'], 'component': it.get('component', ''),
+                     'label': it.get('label', ''), 'model_path': mp, 'path': path, 'error': err})
+    with _lock:
+        _fallbacks.extend(recs)
+    log(f"{chunk}: FALLBACK {len(items)} rows -> {sorted({r['path'] for r in out})} "
+        f"(model paths {sorted(set(got.values()))[:3]})")
+    return out
+
+
 def normalize_rows(rows, valid):
     """Collapse hallucinated 4-segment paths to their valid 3-segment parent."""
     n = 0
@@ -145,13 +192,14 @@ def valid_rows(rows, items, l1, valid):
 
 def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth=0):
     prompt = build_prompt(l1, chunk, items, rules, inv)
-    last_err = None
+    last_err, last_rows, invalid = None, [], False
     for attempt in range(retries):
         try:
             rows = parse_rows(call(gateways, prompt))
             _stats["normalized"] += normalize_rows(rows, valid)
             if valid_rows(rows, items, l1, valid):
                 return rows
+            invalid, last_rows = True, rows
             bad = [str(r.get("path")) for r in rows if str(r.get("path")) not in valid][:3]
             last_err = f"invalid output ({len(rows)}/{len(items)} rows, bad paths {bad})"
             log(f"{chunk}: attempt {attempt+1} {last_err}")
@@ -159,12 +207,18 @@ def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth
             last_err = str(e)
         time.sleep(2 + attempt * 3)
     if depth >= 2 or len(items) < 20:
+        if invalid:
+            raise InvalidOutput(f"{chunk}: {last_err}", last_rows)
         raise RuntimeError(f"{chunk}: {last_err}")
     mid = len(items) // 2
     log(f"{chunk}: split {len(items)} -> {mid}+{len(items)-mid} after {last_err}")
-    a = classify_items(gateways, l1, chunk, items[:mid], rules, inv, valid, retries, depth + 1)
-    b = classify_items(gateways, l1, chunk, items[mid:], rules, inv, valid, retries, depth + 1)
-    return a + b
+    parts = []
+    for sub in (items[:mid], items[mid:]):
+        try:
+            parts.append(classify_items(gateways, l1, chunk, sub, rules, inv, valid, retries, depth + 1))
+        except InvalidOutput as e:
+            parts.append(fallback_rows(l1, chunk, sub, valid, e.rows, str(e)))
+    return parts[0] + parts[1]
 
 
 def done_rows(path, want):
@@ -190,8 +244,20 @@ def run_chunk(gateways, work, meta, args):
             return 0
     rules, inv, valid = load_rules(l1)
     t0 = time.time()
-    passes = [classify_items(gateways, l1, chunk, items, rules, inv, valid, args.retries)
-              for _ in range(max(1, args.consensus))]
+    try:
+        passes = [classify_items(gateways, l1, chunk, items, rules, inv, valid, args.retries)
+                  for _ in range(max(1, args.consensus))]
+    except InvalidOutput as e:
+        if not valid:
+            raise
+        passes = [fallback_rows(l1, chunk, items, valid, e.rows, str(e))]
+    bad = [f for f in _fallbacks if f["chunk"] == chunk]
+    if bad:
+        _stats["fallback"] += 1
+        dst_bad = os.path.join(work, f"unresolved_{chunk}.json")
+        with open(dst_bad, "w", encoding="utf-8") as fh:
+            json.dump(bad, fh, ensure_ascii=False, indent=1)
+        log(f"{chunk}: 已兜底 {len(bad)} 行 -> {dst_bad}（需人工复核分类法）")
     if len(passes) == 1:
         rows = passes[0]
         out = [{"seq": r["seq"], "path": r["path"],
@@ -250,7 +316,8 @@ def main():
                 log(f"{m['chunk']}: FAILED {e}")
     dt = time.time() - t0
     print(f"\nchunks={_stats['chunks']}/{len(manifest)} items={_stats['items']} "
-          f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']} elapsed={dt:.0f}s "
+          f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']} "
+          f"fallback={_stats['fallback']} elapsed={dt:.0f}s "
           f"rate={_stats['items']/max(dt,1)*60:.0f} items/min")
     if failed:
         for c, e in failed:

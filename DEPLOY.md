@@ -370,6 +370,11 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 - **原因**：预检用 `find <渠道根> -name '*attribution*.jsonl'` 扫全树，而 `1_aime/eval_output/0_daily_eval_atomic-shards/` 下有数据搬运工具写的 `.delivery/claims/...` 状态目录（小文件极多），ceph-fuse 上逐个 stat 很慢；这些文件本来就会被后面的 `grep -v` 过滤掉，纯属白扫。
 - **处理**：已改成先 `-prune` 掉 `.*` / `cluster` / `comparison` / `criteria` 再数，计数不变（AIME 仍 149），耗时从 >5 分钟降到约 40s。以后再有重型非输入目录，加进同一个 prune 列表。
 
+### 7.15 几行坏数据把整棵树判失败（模型编造 path）
+- **现象**：2026-11-11 16:33 增量，`aime_expert` 只有 `S8_c001` 这一片 6 行，三次尝试都返回不存在的 path（`S8.M2.1`、`S8.M6.1`），`classify` 抛 `invalid output` → 整棵树 `rc=1`，这棵树交付停在上一轮（14:26），另 20 几片正常的判定一起不给交付。
+- **原因**：两层。① 分类法缺叶：S8 只有 4 个叶子，没有"从图上读到的数值本身错"这一位，而 `S8.M5.1 图像数值合计算错` 的排他项还错误地写着「数值本身读错（OCR 失败）→ S6.M4.1」——`S6.M4.1` 其实是"客服正文被截断"（组件 `customer_services`），既不是同一环节也不可能被输出。模型在 S8 里找不到合法去处就编 path。② 分片 <20 行时 `classify_items` 不再二分，重试耗尽即抛错，失败粒度是"整棵树"而不是"这几行"。
+- **处理**：① 新增 `S8.M5.2 图像识读结果错误`（组件 `understand_image`），并把 `S8.M5.1` 的排他项改指 `S8.M5.2`；② `bin/classify.py` 增加兜底：仅"path 不合法"这一类失败（网关异常仍照旧失败，不掩盖故障）在二分到底后按 component/机制落到本环节最相近的合法叶，行标 `edge=true`，写 `<run>/unresolved_<chunk>.json`，summary 打印 `fallback=N`，不再让整棵树 `rc=1`。复核方式：`jq -r '.[]|"\(.chunk) \(.seq) \(.model_path) -> \(.path)"' runs/<树>/run_*/unresolved_*.json`，若同一模式反复出现就说明该补叶/补判据。
+
 ---
 
 ## 8. 排错速查
@@ -387,6 +392,7 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 | 远端预检退出码 1 | 有 FAIL | 按输出修；BLOCKED 不会让退出码变 1 |
 | 两台 `code_sha256` 不同 | 有一台没同步 | 两台各跑一次 `./deploy_local.sh <渠道>` |
 | 冒烟卡在 `verify` | `--src` 指到巨大目录 | `tests/smoke.sh` 已固定 `--src tests`，别改回去 |
+| 某棵树只有 1 片失败、其余正常 | 那几行 path 模型编造/分类法缺叶 | 看 `runs/<树>/run_*/unresolved_*.json`；已加兜底不会拖垮整树，仍应补叶（见 §7.15） |
 
 ---
 

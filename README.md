@@ -192,7 +192,7 @@ cluster_algorithm/
 │   ├── make_manifest.py   生成交付清单与校验和
 │   └── krippendorff.py    双盲重标一致性（nominal α）
 ├── taxonomy/
-│   ├── inventory.json     171 个叶子 + 12 环节 + 7 机制的冻结版
+│   ├── inventory.json     172 个叶子 + 12 环节 + 7 机制的冻结版
 │   ├── stages.json        12 段定义
 │   ├── INV_<L1>.md        每个环节的归类决策表（S1–S12）
 │   ├── comp2l1.json       component → L1（跨段工具写成 "S4+S10"）
