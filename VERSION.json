@@ -1,8 +1,8 @@
 {
- "version": "4.3.0",
+ "version": "4.3.1",
  "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 171 模式；引用自检通过)",
  "created": "2026-10-28",
- "updated": "2026-11-03",
+ "updated": "2026-11-11",
  "changes": [
   "1.1.0 增加会话主口径、横切标签、syndrome、comp2l1 显式映射",
   "1.2.0 提示词升级为可判定规格：决策顺序、边界裁决表、真实样例、可执行自检、反模式清单",
@@ -21,7 +21,8 @@
   "4.1.2 S9 段名「终稿生成」改为「答案合成」，工具/标签同步改名（叶子 id 与判定不变，无需重判）",
   "4.1.3 登记 12 个线上新组件（finquery/display/aime-finquery 请求生成、wencai-big-fast calc.py、vis-custom workflow.js、/workdir 与 /harness 脚本）；分类法 171 叶不变",
   "4.2.0 归因条目带回 user_id / bad_case_id / request_time；bad_case_id = 渠道+规范化问句+分钟级时间的哈希；新增按渠道的 bad_case 索引（问财/AIME 各一份），支持拿 id 定位并重放问句",
-  "4.3.0 聚类按渠道拆到两台机器（乌兰=问财 / 弗吉尼亚=AIME）：树表改为扫目录自动发现（问财新增 6 棵 search_eval，共 10 棵）；渠道根、网关、并发由 .deploy/env.sh 决定；代码不再走 git 下发，改由本机 deploy_local.sh rsync 并写 .deploy/DEPLOYED.json 指纹；预检分 OK/BLOCKED/FAIL 三态；守护改为 bin/channel_daemon.sh + bin/watch_daemon.sh 按渠道各一套，默认不启动"
+  "4.3.0 聚类按渠道拆到两台机器（乌兰=问财 / 弗吉尼亚=AIME）：树表改为扫目录自动发现（问财新增 6 棵 search_eval，共 10 棵）；渠道根、网关、并发由 .deploy/env.sh 决定；代码不再走 git 下发，改由本机 deploy_local.sh rsync 并写 .deploy/DEPLOYED.json 指纹；预检分 OK/BLOCKED/FAIL 三态；守护改为 bin/channel_daemon.sh + bin/watch_daemon.sh 按渠道各一套，默认不启动",
+  "4.3.1 登记线上新组件 context-compaction-summary（S10 请求生成，跨 S9 摘要口径）；沙箱脚本模式补 .mjs/.cjs/.ts 扩展名，/harness/workdir/*.mjs 这类新脚本不再中断 ingest"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",

@@ -1564,7 +1564,8 @@
    "include": "含与本轮输入材料中的数值冲突。",
    "exclude": "单处算错 → S9.M5.3。",
    "components": [
-    "答案合成"
+    "答案合成",
+    "context-compaction-summary"
    ],
    "plain": "正文、表格、结论里的数字前后不一致。"
   },
@@ -1845,7 +1846,8 @@
     "stock_ner_parse",
     "understand_image",
     "view_skill/read_file",
-    "watchlist_manager"
+    "watchlist_manager",
+    "context-compaction-summary"
    ],
    "plain": "空的请求发出去，直接被拦。"
   },

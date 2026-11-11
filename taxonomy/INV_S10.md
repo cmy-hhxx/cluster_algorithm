@@ -44,7 +44,7 @@
 - **纳入**：arguments 为 {}、query 为空串、只给工具名不给参数。
 - **排除**：参数有值但类型或字段名不合契约 → `S10.M2.8`；被校验拒绝 → `S10.M3.2`。
 - **最相近的类别**：`–` — 区分点：–
-- **标签**：失败 ｜ **组件**：CodeInterpreter、aime_memory_read、aime_memory_write、client_action、customer_services、get_user_context、planner-finquery、planner-search、query_user_positions、shell、stock_ner_parse、understand_image、view_skill/read_file、watchlist_manager
+- **标签**：失败 ｜ **组件**：CodeInterpreter、aime_memory_read、aime_memory_write、client_action、customer_services、get_user_context、planner-finquery、planner-search、query_user_positions、shell、stock_ner_parse、understand_image、view_skill/read_file、watchlist_manager、context-compaction-summary
 
 ### `S10.M1.2` 未生成请求
 

@@ -1144,5 +1144,11 @@
   "label": "超级图表技能",
   "role": "skill",
   "stage": "S8"
+ },
+ "context-compaction-summary": {
+  "tool": "context-compaction-summary",
+  "label": "上下文压缩摘要模型",
+  "role": "planning",
+  "stage": "S10"
  }
 }

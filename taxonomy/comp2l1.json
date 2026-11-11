@@ -29,5 +29,6 @@
  "Backtest": "S3",
  "alert": "S3",
  "create-automation": "S8",
- "pptx": "S8"
+ "pptx": "S8",
+ "context-compaction-summary": "S10+S9"
 }
