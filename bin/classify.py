@@ -24,9 +24,10 @@ REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模
 
 TEMPERATURE = None
 _lock = threading.Lock()
-_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "fallback": 0}
+_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "fallback": 0, "reused": 0}
 _INV = None
 _fallbacks = []
+_REUSE = {}   # seq -> {path, edge}：复用上一版判定（--reuse），命中条目不再调模型
 
 
 def log(msg):
@@ -242,15 +243,25 @@ def run_chunk(gateways, work, meta, args):
         if rows is not None:
             log(f"{chunk}: skip ({len(rows)} rows, already done)")
             return 0
+    reused = [{"seq": s, "path": _REUSE[s]["path"], "edge": bool(_REUSE[s].get("edge"))}
+              for s in sorted(want) if s in _REUSE]
+    todo = [it for it in items if it["seq"] not in _REUSE]
+    if not todo:
+        with open(dst, "w", encoding="utf-8") as fh:
+            for r in reused:
+                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        _stats["reused"] += len(reused)
+        log(f"{chunk}: reused {len(reused)} rows（全部复用旧判定，未调模型）")
+        return len(reused)
     rules, inv, valid = load_rules(l1)
     t0 = time.time()
     try:
-        passes = [classify_items(gateways, l1, chunk, items, rules, inv, valid, args.retries)
+        passes = [classify_items(gateways, l1, chunk, todo, rules, inv, valid, args.retries)
                   for _ in range(max(1, args.consensus))]
     except InvalidOutput as e:
         if not valid:
             raise
-        passes = [fallback_rows(l1, chunk, items, valid, e.rows, str(e))]
+        passes = [fallback_rows(l1, chunk, todo, valid, e.rows, str(e))]
     bad = [f for f in _fallbacks if f["chunk"] == chunk]
     if bad:
         _stats["fallback"] += 1
@@ -274,10 +285,13 @@ def run_chunk(gateways, work, meta, args):
                 counts[p] = counts.get(p, 0) + 1
             best = max(counts, key=lambda p: (counts[p], p == paths[0]))
             out.append({"seq": seq, "path": best, "edge": len(counts) > 1})
+    out = reused + out
+    _stats["reused"] += len(reused)
     with open(dst, "w", encoding="utf-8") as fh:
         for r in out:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-    log(f"{chunk}: {len(out)} rows in {time.time()-t0:.0f}s")
+    log(f"{chunk}: {len(out)} rows in {time.time()-t0:.0f}s"
+        + (f"（复用 {len(reused)}，新判 {len(out)-len(reused)}）" if reused else ""))
     return len(out)
 
 
@@ -289,12 +303,16 @@ def main():
     ap.add_argument("--retries", type=int, default=3)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--consensus", type=int, default=1, help="每片跑几遍投票；>1 时用分歧标 edge，成本×N")
+    ap.add_argument("--reuse", default="", help="seq->path 复用表（bin/build_reuse_map.py 产出），命中条目不再调模型")
     ap.add_argument("--effort", default=REASONING, help="none/low/medium/high；none 最快")
     ap.add_argument("--temperature", type=float, default=None)
     a = ap.parse_args()
     REASONING, TEMPERATURE = a.effort, a.temperature
 
     work = os.path.abspath(a.work)
+    if a.reuse:
+        _REUSE.update({r["seq"]: r for r in (json.loads(l) for l in open(a.reuse, encoding="utf-8") if l.strip())})
+        log(f"reuse: {len(_REUSE)} 条命中（--reuse {a.reuse}）")
     manifest = json.load(open(os.path.join(work, "assign", "manifest.json"), encoding="utf-8"))
     gateways = healthy_gateways()
     if not gateways:
@@ -317,7 +335,7 @@ def main():
     dt = time.time() - t0
     print(f"\nchunks={_stats['chunks']}/{len(manifest)} items={_stats['items']} "
           f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']} "
-          f"fallback={_stats['fallback']} elapsed={dt:.0f}s "
+          f"fallback={_stats['fallback']} reused={_stats['reused']} elapsed={dt:.0f}s "
           f"rate={_stats['items']/max(dt,1)*60:.0f} items/min")
     if failed:
         for c, e in failed:

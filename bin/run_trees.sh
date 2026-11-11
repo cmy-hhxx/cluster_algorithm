@@ -20,8 +20,10 @@
 #   增量时若基线不存在 → 自动退回全量（--no-full-fallback 则直接报错退 3）。
 #
 # 用法：
-#   bin/run_trees.sh [<datasets_root>] [--incremental] [--concurrency N] [--only a,b]
+#   bin/run_trees.sh [<datasets_root>] [--incremental] [--rebuild] [--concurrency N] [--only a,b]
 #                    [--channel wencai|aime] [--dry-run] [--no-deliver] [--no-full-fallback]
+#   --rebuild：全量重新 ingest，但按 (trace_id, problem_index) 复用上一版判定（只归类新增/变更条目），
+#              用于换了身份口径/交付格式之后重建树，避免 20 万条重判漂移。
 #
 # 例：
 #   bin/run_trees.sh                                             # 只跑 .deploy/env.sh 那个渠道的全部树
@@ -37,7 +39,7 @@ if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 
 DS=""
 if (($#)) && [[ $1 != -* ]]; then DS=$1; shift; fi
-INC=0; CONC=${CLUSTER_CONCURRENCY:-12}; ONLY=""; DRY=0; DELIVER=1; NOFULL=0; CH_FLAG=""
+INC=0; CONC=${CLUSTER_CONCURRENCY:-12}; ONLY=""; DRY=0; DELIVER=1; NOFULL=0; CH_FLAG=""; REBUILD=0
 while (($#)); do
   case "$1" in
     --incremental) INC=1 ;;
@@ -47,6 +49,7 @@ while (($#)); do
     --dry-run)     DRY=1 ;;
     --no-deliver)  DELIVER=0 ;;
     --no-full-fallback) NOFULL=1 ;;
+    --rebuild)     REBUILD=1 ;;
     -h|--help)     sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
@@ -187,7 +190,19 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     # 全量必须干净：旧 assign/*.out.jsonl 若 seq 恰好对得上，classify 会误判「已完成」而复用旧判定
     rm -rf "$WORK/$t/run"
     ./run.sh init "$src" "$WORK/$t/run" "$CASES_INDEX" "$CH"
-    ./run.sh classify "$WORK/$t/run" --concurrency "$CONC"
+    REUSE=""
+    if [[ $REBUILD -eq 1 ]]; then
+      OLD=""
+      [[ -f "$WORK/$t/run_merged/items.jsonl" ]] && OLD="$WORK/$t/run_merged"
+      [[ -z "$OLD" && -f "$deliver/item_index.jsonl" ]] && OLD="$deliver"
+      if [[ -n "$OLD" ]]; then
+        python3 bin/build_reuse_map.py --old "$OLD" --work "$WORK/$t/run" --out "$WORK/$t/reuse.jsonl" | tail -1
+        REUSE="$WORK/$t/reuse.jsonl"
+      else
+        echo "  没有可复用的旧判定（$WORK/$t/run_merged 与 $deliver 都不存在），本次为新判" >&2
+      fi
+    fi
+    ./run.sh classify "$WORK/$t/run" --concurrency "$CONC" ${REUSE:+--reuse "$REUSE"}
     ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
     rm -rf "$WORK/$t/run_merged" "$WORK/$t/run_delta" "$WORK/$t/run_new"
     final="$WORK/$t/run"

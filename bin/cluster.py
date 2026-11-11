@@ -215,7 +215,8 @@ def cmd_ingest(a):
     base_dir = a.input if os.path.isdir(a.input) else os.path.dirname(a.input)
     items, loc, bad = [], [], []
     seq = 0
-    joined = missed = 0
+    joined = missed = dup = 0
+    seen = set()
     for f in files:
         rel = os.path.relpath(f, base_dir).replace(os.sep, '/')
         model_dir = os.path.basename(os.path.dirname(f))
@@ -248,6 +249,11 @@ def cmd_ingest(a):
                 for pi, p in enumerate(as_list(t.get('problem'))):
                     if not isinstance(p, dict):
                         continue
+                    key = (tid, pi)
+                    if key in seen:       # 同一 trace 在 daily/lost 多个文件里重复导出：按 (trace_id, problem_index) 去重
+                        dup += 1
+                        continue
+                    seen.add(key)
                     seq += 1
                     tool, comp_label, stage = canon_component(clean(p.get('component')))
                     cent = component_map().get(clean(p.get('component'))) or {}
@@ -290,7 +296,7 @@ def cmd_ingest(a):
         'sessions': len({i['session_id'] for i in items}),
         'cases': len({i['case_id'] for i in items}),
         'items': len(items),
-        'case_joined': joined, 'case_missing': missed,
+        'case_joined': joined, 'case_missing': missed, 'dup_items': dup,
         'bad_lines': bad[:20], 'bad_line_count': len(bad),
         'components': dict(collections.Counter(i['component'] for i in items).most_common()),
     }
@@ -305,7 +311,7 @@ def cmd_ingest(a):
                  '\n请先登记到 taxonomy/components.json 并指定所属段，再重跑 ingest。')
     print(f"items={len(items)} traces={stats['records']} sessions={stats['sessions']} "
           f"components={len(stats['components'])} bad_lines={len(bad)} "
-          f"cases_joined={joined} cases_missing={missed}")
+          f"cases_joined={joined} cases_missing={missed} dup_items={dup}")
 
 
 # ---------------------------------------------------------------- chunk
