@@ -193,6 +193,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     python3 bin/cluster.py chunk --work "$WORK/$t/run_delta" --size 60
     ./run.sh classify "$WORK/$t/run_delta" --concurrency "$CONC"
     python3 bin/merge_runs.py --out "$WORK/$t/run_next" "$base" "$WORK/$t/run_delta" | tail -1
+    mkdir -p "$out"; rm -f "$out/src_map.json"   # out 目录跨轮复用，旧 src_map 不删会被拷进交付
     ./run.sh finish "$WORK/$t/run_next" "$out" 0 "$srcroot"
     rm -rf "$WORK/$t/run_merged"; mv "$WORK/$t/run_next" "$WORK/$t/run_merged"
     final="$WORK/$t/run_merged"
@@ -217,6 +218,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
       fi
     fi
     ./run.sh classify "$WORK/$t/run" --concurrency "$CONC" ${REUSE:+--reuse "$REUSE"}
+    mkdir -p "$out"; rm -f "$out/src_map.json"
     ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
     rm -rf "$WORK/$t/run_merged" "$WORK/$t/run_delta" "$WORK/$t/run_new"
     final="$WORK/$t/run"
