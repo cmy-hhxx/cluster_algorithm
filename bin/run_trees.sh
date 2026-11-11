@@ -119,7 +119,6 @@ CASES_TTL_H=${CLUSTER_CASES_TTL_H:-12}
 need_cases=0
 if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
   if [[ ! -f "$CASES_INDEX" ]]; then need_cases=1
-  elif [[ $REBUILD -eq 1 ]]; then need_cases=1
   else
     age_h=$(( ( $(date +%s) - $(stat -c %Y "$CASES_INDEX") ) / 3600 ))
     echo "case 身份索引已存在（${age_h}h 前，TTL ${CASES_TTL_H}h），本轮直接用；新 trace 退回归因自带 question"

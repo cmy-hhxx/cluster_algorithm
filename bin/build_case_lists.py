@@ -32,6 +32,9 @@ import cluster as C  # noqa: E402  复用 clean / bad_case_id / iso_time
 
 SKIP = {'.runs', '.delivery', '.archive', '.git', '.staging', 'cluster',
         'comparison', 'criteria', '__pycache__'}
+# 上游整理 eval_output 时会留 `0_daily_eval-pre-split-<时间戳>` 之类的备份目录（里面是重复文件），
+# 这些不是输入：按前缀跳过，否则同一 trace 会被重复计入 case 统计。
+SKIP_PREFIX = ('0_daily_eval-pre', '1_lost_user_eval-pre', '.bak', 'backup')
 BAD_SEV = {'P0', 'P1'}
 SEV_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3, 'P4': 4, '': 9}
 
@@ -45,7 +48,8 @@ def read_jsonl(path):
 
 def skipped(path, root):
     rel = os.path.relpath(path, root).split(os.sep)
-    return any(p not in ('.', '') and (p in SKIP or p.startswith('.')) for p in rel)
+    return any(p not in ('.', '') and (p in SKIP or p.startswith('.') or p.startswith(SKIP_PREFIX))
+               for p in rel)
 
 
 def load_cases(root):
