@@ -112,10 +112,24 @@ ROWS=$(python3 bin/discover_trees.py --channel "$CH" \
   ${AIME_ROOT:+--aime-root "$AIME_ROOT"} \
   --staging "$WORK/_src") || { echo "树发现失败（channel=${CH}，WENCAI_ROOT=${WENCAI_ROOT:-未设}，AIME_ROOT=${AIME_ROOT:-未设}）" >&2; exit 3; }
 
+# case 身份索引：eval_input 148G，全量扫一次十几分钟，不能每轮都做。
+# 规则：缺失 / --rebuild / 超过 TTL（默认 12h）才重建；其余轮次直接用旧索引，
+# 新 trace 查不到身份时 ingest 会退回该条归因自带的 question/session（不影响条目与判定）。
+CASES_TTL_H=${CLUSTER_CASES_TTL_H:-12}
+need_cases=0
 if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
-  echo "压 case 身份索引（eval_input → trace_id）..."
-  python3 bin/build_cases_index.py --channel "$CH" --root "$CASES_ROOT" --out "$CASE_INDEX_ROOT" 2>&1 | sed 's/^/  /' \
-    || { echo "WARN cases 索引构建失败：ingest 将退回归因自带的 question/session（无行号/路径，但可能缺问句）" >&2; }
+  if [[ ! -f "$CASES_INDEX" ]]; then need_cases=1
+  elif [[ $REBUILD -eq 1 ]]; then need_cases=1
+  else
+    age_h=$(( ( $(date +%s) - $(stat -c %Y "$CASES_INDEX") ) / 3600 ))
+    echo "case 身份索引已存在（${age_h}h 前，TTL ${CASES_TTL_H}h），本轮直接用；新 trace 退回归因自带 question"
+    (( age_h >= CASES_TTL_H )) && need_cases=1
+  fi
+  if (( need_cases )); then
+    echo "重建 case 身份索引（eval_input → trace_id，增量重扫）..."
+    python3 bin/build_cases_index.py --channel "$CH" --root "$CASES_ROOT" --out "$CASE_INDEX_ROOT" 2>&1 | sed 's/^/  /' \
+      || { echo "WARN cases 索引构建失败：ingest 将退回归因自带的 question/session" >&2; }
+  fi
 fi
 
 selected() { [[ -z "$ONLY" ]] && return 0; [[ ",$ONLY," == *",$1,"* ]]; }
@@ -213,6 +227,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   v=$(python3 -c "import json;d=json.load(open('$out/verify.json'));print(f\"err={d['errors']},mismatch={d['locator_mismatch']}\")")
   if [[ $DELIVER -eq 1 ]]; then
     mkdir -p "$deliver"
+    rm -f "$deliver/src_map.json"        # 4.4 起不再产出；旧交付里的残留要清掉，否则还是 12 件
     cp "$out"/* "$deliver"/
     echo "  交付：${deliver}（$(ls -1 "$deliver" | wc -l | tr -d ' ') 个文件）"
   fi

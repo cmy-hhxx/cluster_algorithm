@@ -111,10 +111,15 @@ def main():
 
     rows = [v[1] for v in best.values()]
     rows.sort(key=lambda r: (r['request_time'], r['trace_id']))
-    with open(p, 'w', encoding='utf-8') as fh:
+    # 原子替换：incremental 轮次可能在读这份索引，不能让它读到写了一半的文件
+    tmp = p + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as fh:
         for r in rows:
             fh.write(json.dumps(r, ensure_ascii=False) + '\n')
-    json.dump(new_state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False)
+    os.replace(tmp, p)
+    tmp2 = sp + '.tmp'
+    json.dump(new_state, open(tmp2, 'w', encoding='utf-8'), ensure_ascii=False)
+    os.replace(tmp2, sp)
     per_model = collections.Counter(r['model'] for r in rows)
     print(f"files={len(all_files)}（重扫 {len(todo)}）new_records={n} traces={len(rows)} "
           f"（{' '.join(f'{k}={v}' for k, v in sorted(per_model.items()))}） -> {p}")
