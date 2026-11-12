@@ -30,5 +30,6 @@
  "alert": "S3",
  "create-automation": "S8",
  "pptx": "S8",
- "context-compaction-summary": "S10+S9"
+ "context-compaction-summary": "S10+S9",
+ "stock-screener": "S8"
 }

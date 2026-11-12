@@ -1319,11 +1319,12 @@
    "l1": "S8",
    "l2": "M3",
    "name": "技能加载失败",
-   "definition": "技能文件路径解析失败、反序列化报错、前置校验不通过，能力未加载即中止。（本叶仅收 view_skill/read_file 产生的缺陷）",
-   "include": "含 skill 文件不存在、参数 JSON 解析失败。",
+   "definition": "技能文件路径解析失败、反序列化报错、前置校验不通过，能力未加载即中止。（本叶仅收 view_skill/read_file、stock-screener 产生的缺陷）",
+   "include": "含 skill 文件不存在、参数 JSON 解析失败。；含技能参考文件或安装目录缺失",
    "exclude": "参数缺失 → T.M1.1。",
    "components": [
-    "view_skill/read_file"
+    "view_skill/read_file",
+    "stock-screener"
    ],
    "plain": "路径解析失败、反序列化报错，能力未加载即中止。"
   },
