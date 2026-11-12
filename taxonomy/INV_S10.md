@@ -116,7 +116,7 @@
 - **纳入**：把技能名当函数名调用、调用清单外工具、用检索工具做结构化筛选。
 - **排除**：工具对但参数错 → `S10.M2.8`；计划层就选错 → `S1.M2.1`。
 - **最相近的类别**：`–` — 区分点：–
-- **标签**：失败 ｜ **组件**：CodeInterpreter、aime_memory_read、aime_memory_write、client_action、customer_services、get_user_context、planner-finquery、planner-search、query_user_positions、shell、stock_ner_parse、understand_image、view_skill/read_file、watchlist_manager
+- **标签**：失败 ｜ **组件**：CodeInterpreter、aime_memory_read、aime_memory_write、client_action、customer_services、get_user_context、planner-finquery、planner-search、query_user_positions、shell、stock_ner_parse、understand_image、view_skill/read_file、watchlist_manager、catalyst-calendar
 
 ### `S10.M2.8` 请求结构不合契约
 

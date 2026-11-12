@@ -1156,5 +1156,11 @@
   "label": "选股技能",
   "role": "skill",
   "stage": "S8"
+ },
+ "catalyst-calendar": {
+  "tool": "catalyst-calendar",
+  "label": "事件日历技能",
+  "role": "skill",
+  "stage": "S10"
  }
 }

@@ -1,5 +1,5 @@
 {
- "version": "4.4.1",
+ "version": "4.4.2",
  "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 172 模式；引用自检通过)",
  "created": "2026-10-28",
  "updated": "2026-11-11",
@@ -25,7 +25,8 @@
   "4.3.1 登记线上新组件 context-compaction-summary（S10 请求生成，跨 S9 摘要口径）；沙箱脚本模式补 .mjs/.cjs/.ts 扩展名，/harness/workdir/*.mjs 这类新脚本不再中断 ingest",
   "4.3.2 新增 S8.M5.2「图像识读结果错误」（原 S8 无「读数本身错」的合法叶，模型只能编造 S8.M2.1/S8.M6.1），并修正 S8.M5.1 排他项里指向跨段 S6.M4.1 的错误引用；classify 加兜底：path 全不合法且二分到最小片仍失败时，落到同环节最相近叶并标 edge、写 unresolved_<chunk>.json，不再让几行坏数据把整棵树判 rc=1（2026-11-11 aime_expert 事故）",
   "4.4.0 输入规整（eval_input，trace 粒度）：问句/身份只认 eval_input，归因只提供 problem+severity，按 trace_id join；交付物去掉 file/line/json_path/src_path 与 src_map.json，item_index/cluster_tree 只带 trace_id+session_id+batch_id（回 eval_input 还原现场）；去重键改 (trace_id, problem_index)；新增 cases_<渠道>.jsonl（身份索引）、badcase_<渠道>.jsonl（P0/P1）、goldencase_<渠道>.jsonl（无 problem），P2–P4 不进清单",
-  "4.4.1 登记线上新组件 stock-screener（选股技能，角色 skill → S8 能力装载）；2026-11-12 11:38 aime_expert ingest 因未登记中断，本轮补登记后补跑"
+  "4.4.1 登记线上新组件 stock-screener（选股技能，角色 skill → S8 能力装载）；2026-11-12 11:38 aime_expert ingest 因未登记中断，本轮补登记后补跑",
+  "4.4.2 登记新组件 catalyst-calendar（事件日历技能，skill → S10 请求生成的「工具选错」）：缺陷是 skill 取数指引指向会话不可用的工具；aime_expert 2026-11-12 21:11 因此中断"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",

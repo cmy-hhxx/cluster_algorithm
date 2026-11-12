@@ -2069,7 +2069,8 @@
     "stock_ner_parse",
     "understand_image",
     "view_skill/read_file",
-    "watchlist_manager"
+    "watchlist_manager",
+    "catalyst-calendar"
    ],
    "plain": "调了一个不存在或不合适的工具。"
   },
