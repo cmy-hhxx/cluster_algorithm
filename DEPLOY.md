@@ -506,6 +506,13 @@ eval_input 拿身份/问句」两份 join。
 - `deploy_local.sh` / `bin/preflight.sh`：env 增加 `AIME_CASES_ROOT` / `WENCAI_CASES_ROOT`，
   预检多一项「输入根」（缺了只 WARN，ingest 退回归因自带 question）。
 
+**未登记组件一律中断（2026-11-12 确认的长期口径）**：ingest 遇到 `components.json` 里没有的
+component 直接 `sys.exit`，写入 `<run>/unregistered.json`，该树本轮不交付（其余树不受影响）。
+这是刻意的：宁可某一轮少一棵树，也不要让新工具被硬塞进不相干的环节、把 S0/兜底桶撑大。
+处理流程固定为「先判断归属 → 登记 components.json + comp2l1.json + 对应叶子 → 重导出 INV →
+lint errors=0 → 部署 → 补跑该树」。当天已按此处理 `stock-screener`（S8 技能加载失败）与
+`catalyst-calendar`（S10 工具选错）。
+
 **迁移日操作**：停守护（先 `cluster-watch-aime` 再 `cluster-incr-aime`）→ 部署 4.4 → 手动全量重建
 `bin/run_trees.sh`（两棵树都要全量，老基线不兼容）→ 校验 `verify.json` 的 `errors=0`、
 `badcase/goldencase` 条数（AIME 抽样：P0/P1 约占 case 的 17%，无 problem 约占 11%）→ 再启守护。
