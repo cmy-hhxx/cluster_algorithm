@@ -15,7 +15,7 @@
       117.50.195.94:2834          10.217.219.2:2225
       interactive-i6piqwvlnsr5    interactive-npasm9ch66eb
       问财渠道（4 + 6 棵树）       AIME 渠道（2 棵树，日常 + 流失合并）
-      网关：两个内网 vLLM 通        网关：10.248.72.73/.71:8000 通
+      网关：两个内网 vLLM 通        网关：10.244.192.108:8000 通
       数据：ceph eval_output       数据：SSD /mnt/aime_eval_ssd/1_aime/eval_output
       8 核 / 16 GiB               6 核 / 64 GiB
 ```
@@ -41,7 +41,7 @@
 | 数据根 `*_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output` | **`/mnt/aime_eval_ssd/1_aime/eval_output`**（2026-11-09 起，SSD） |
 | 索引目录 `CASE_INDEX_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets` | **`/mnt/aime_eval_ssd`**（`bad_case_index_aime.jsonl` 落在 `1_aime` 的上一级） |
 | Python venv | 仓库内 `.venv`（历史遗留，能用就不动） | `/opt/cluster-venv`（本地盘，ceph 上装 site-packages 极慢） |
-| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | `http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1`（vLLM `deepseek-v4.1-flash`，2026-11-10 切换；旧 `10.99.116.223:8888` 已卡死弃用） |
+| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | `http://10.244.192.108:8000/v1`（vLLM `deepseek-v4.1-flash`，2026-11-10 切换；旧 `10.99.116.223:8888` 已卡死弃用） |
 | 并发 `CLUSTER_CONCURRENCY` | 12 | 8 |
 | 容器配额 | 8 核 / 16 GiB / 无 swap | 6 核 / 64 GiB / 无 swap |
 | 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | ceph-fuse 挂到 `/mnt/aime_eval_ssd`（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁来；旧目录已删除） |
@@ -243,9 +243,9 @@ export WENCAI_ROOT="<...>/0_wencai/eval_output"   # 另一渠道留空
 export AIME_ROOT="/mnt/aime_eval_ssd/1_aime/eval_output"   # 2026-11-09 起在 SSD，结构仍是 1_aime/eval_output
 export CASE_INDEX_ROOT="/mnt/aime_eval_ssd"                # bad_case_index_aime.jsonl 落在这一级
 export CLUSTER_CONCURRENCY=12            # 弗吉尼亚 8
-export CLUSTER_GATEWAYS="<网关，逗号分隔；弗吉尼亚是 http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1>"
+export CLUSTER_GATEWAYS="<网关，逗号分隔；弗吉尼亚是 http://10.244.192.108:8000/v1>"
 export EVAL_GATEWAY_API_KEY=dummy
-export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.248.72.73,10.248.72.71,localhost,127.0.0.1"
+export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.244.192.108,localhost,127.0.0.1"
 ```
 
 四个必须项，缺一个就会踩坑：
@@ -473,7 +473,7 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 
 | 项 | 值 |
 |---|---|
-| `CLUSTER_GATEWAYS` | `http://10.248.72.73:8000/v1,http://10.248.72.71:8000/v1` |
+| `CLUSTER_GATEWAYS` | `http://10.244.192.108:8000/v1` |
 | 模型 | 两台都是 vLLM `deepseek-v4.1-flash`（与 `CLUSTER_MODEL` 默认值一致，无需改） |
 | 实测 | `73`: `/models` 200、`/responses` 200 返回 `pong`（2.19s）；`71`: `/models` 200、`/responses` 200（0.17s） |
 | 用法 | `classify.py` 按网关列表轮询并在失败时切换下一台；两台都挂才会失败 |
@@ -516,3 +516,12 @@ lint errors=0 → 部署 → 补跑该树」。当天已按此处理 `stock-scre
 **迁移日操作**：停守护（先 `cluster-watch-aime` 再 `cluster-incr-aime`）→ 部署 4.4 → 手动全量重建
 `bin/run_trees.sh`（两棵树都要全量，老基线不兼容）→ 校验 `verify.json` 的 `errors=0`、
 `badcase/goldencase` 条数（AIME 抽样：P0/P1 约占 case 的 17%，无 problem 约占 11%）→ 再启守护。
+
+## 15. 2026-11-13 00:45 归类网关换成 10.244.192.108:8000
+
+- 旧的两台 `10.248.72.73/.71:8000` 停用，改为单台 `http://10.244.192.108:8000/v1`
+  （vLLM，`deepseek-v4.1-flash`，`max_model_len=1,048,576`）。
+- 实测：`GET /v1/models` → 200；`POST /v1/responses` 正常返回 `output[]`（不是只读探活）。
+- 改动：`deploy_local.sh` 的 `VA_GATEWAYS` 默认值、`NO_PROXY` 增加 `10.244.192.108`；
+  部署后 `.deploy/env.sh` 的 `CLUSTER_GATEWAYS` 随之更新；`README.md` / 本节同步。
+- 换网关只需改一行再 `./deploy_local.sh aime`，不需要动代码；`bin/preflight.sh` 第 5 项会逐台探活。
