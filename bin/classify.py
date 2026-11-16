@@ -24,11 +24,8 @@ REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模
 
 TEMPERATURE = None
 _lock = threading.Lock()
-_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "fallback": 0, "reused": 0}
-_INV = None
-_fallbacks = []
+_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "reused": 0}
 _REUSE = {}   # seq -> {path, edge}：复用上一版判定（--reuse），命中条目不再调模型
-NO_FALLBACK = os.environ.get("CLUSTER_NO_FALLBACK", "") not in ("", "0", "false", "False")
 
 
 def log(msg):
@@ -122,48 +119,11 @@ def build_prompt(l1, chunk, items, rules, inv):
 
 
 class InvalidOutput(RuntimeError):
-    """模型给的 path 全都不在本环节合法叶子里（可兜底，不该拖垮整棵树）。"""
+    """模型给的 path 全都不在本环节合法叶子里：缺叶或幻觉，不猜，直接失败。"""
 
     def __init__(self, msg, rows=None):
         super().__init__(msg)
         self.rows = rows or []
-
-
-def _inventory():
-    global _INV
-    if _INV is None:
-        _INV = json.load(open(os.path.join(ROOT, 'taxonomy', 'inventory.json'), encoding='utf-8'))
-    return _INV
-
-
-def fallback_rows(l1, chunk, items, valid, rows, err):
-    """兜底：模型给不出合法 path 时，按 component（再看机制）落本环节最相近的合法叶，全部标 edge。
-
-    只用于「重试 + 二分都救不回来」的少数条目；同时写进 <work>/unresolved_*.json 方便人工复核。
-    合法 path 缺失是 taxonomy 缺叶或模型幻觉，不应该让整棵树 rc=1（2026-11-11 aime_expert 事故）。
-    """
-    by_comp, ids = {}, sorted(valid)
-    for n in _inventory()['nodes']:
-        if n['id'] in valid:
-            for c in n.get('components') or []:
-                by_comp.setdefault(c, []).append(n['id'])
-    got = {str(r.get('seq')): str(r.get('path', '')) for r in rows}
-    out, recs = [], []
-    for it in items:
-        mp = got.get(str(it['seq']), '')
-        bits = mp.split('.')
-        mech = bits[1] if len(bits) >= 2 else ''
-        cands = by_comp.get(it.get('component') or '', [])
-        same = [c for c in cands if c.split('.')[1] == mech]
-        path = (same or cands or ids or [''])[0]
-        out.append({'seq': it['seq'], 'path': path, 'edge': True})
-        recs.append({'chunk': chunk, 'seq': it['seq'], 'component': it.get('component', ''),
-                     'label': it.get('label', ''), 'model_path': mp, 'path': path, 'error': err})
-    with _lock:
-        _fallbacks.extend(recs)
-    log(f"{chunk}: FALLBACK {len(items)} rows -> {sorted({r['path'] for r in out})} "
-        f"(model paths {sorted(set(got.values()))[:3]})")
-    return out
 
 
 def normalize_rows(rows, valid):
@@ -216,12 +176,7 @@ def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth
     log(f"{chunk}: split {len(items)} -> {mid}+{len(items)-mid} after {last_err}")
     parts = []
     for sub in (items[:mid], items[mid:]):
-        try:
-            parts.append(classify_items(gateways, l1, chunk, sub, rules, inv, valid, retries, depth + 1))
-        except InvalidOutput as e:
-            if NO_FALLBACK:
-                raise
-            parts.append(fallback_rows(l1, chunk, sub, valid, e.rows, str(e)))
+        parts.append(classify_items(gateways, l1, chunk, sub, rules, inv, valid, retries, depth + 1))
     return parts[0] + parts[1]
 
 
@@ -262,16 +217,17 @@ def run_chunk(gateways, work, meta, args):
         passes = [classify_items(gateways, l1, chunk, todo, rules, inv, valid, args.retries)
                   for _ in range(max(1, args.consensus))]
     except InvalidOutput as e:
-        if NO_FALLBACK or not valid:
-            raise
-        passes = [fallback_rows(l1, chunk, todo, valid, e.rows, str(e))]
-    bad = [f for f in _fallbacks if f["chunk"] == chunk]
-    if bad:
-        _stats["fallback"] += 1
+        # 不兜底：模型给不出合法叶就是缺叶或幻觉，宁可整片失败也不猜。
+        # 但把模型原始 path 落盘，补齐叶/补判据时能直接照着改。
+        got = {str(r.get("seq")): str(r.get("path", "")) for r in e.rows}
+        recs = [{"chunk": chunk, "seq": it["seq"], "component": it.get("component", ""),
+                 "label": it.get("label", ""), "model_path": got.get(str(it["seq"]), ""),
+                 "error": str(e)} for it in todo]
         dst_bad = os.path.join(work, f"unresolved_{chunk}.json")
         with open(dst_bad, "w", encoding="utf-8") as fh:
-            json.dump(bad, fh, ensure_ascii=False, indent=1)
-        log(f"{chunk}: 已兜底 {len(bad)} 行 -> {dst_bad}（需人工复核分类法）")
+            json.dump(recs, fh, ensure_ascii=False, indent=1)
+        log(f"{chunk}: 非法叶子 -> {dst_bad}（{len(todo)} 行，需补叶/补判据）")
+        raise
     if len(passes) == 1:
         rows = passes[0]
         out = [{"seq": r["seq"], "path": r["path"],
@@ -338,7 +294,7 @@ def main():
     dt = time.time() - t0
     print(f"\nchunks={_stats['chunks']}/{len(manifest)} items={_stats['items']} "
           f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']} "
-          f"fallback={_stats['fallback']} reused={_stats['reused']} elapsed={dt:.0f}s "
+          f"reused={_stats['reused']} elapsed={dt:.0f}s "
           f"rate={_stats['items']/max(dt,1)*60:.0f} items/min")
     if failed:
         for c, e in failed:

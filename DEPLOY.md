@@ -378,7 +378,7 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 ### 7.15 几行坏数据把整棵树判失败（模型编造 path）
 - **现象**：2026-11-11 16:33 增量，`aime_expert` 只有 `S8_c001` 这一片 6 行，三次尝试都返回不存在的 path（`S8.M2.1`、`S8.M6.1`），`classify` 抛 `invalid output` → 整棵树 `rc=1`，这棵树交付停在上一轮（14:26），另 20 几片正常的判定一起不给交付。
 - **原因**：两层。① 分类法缺叶：S8 只有 4 个叶子，没有"从图上读到的数值本身错"这一位，而 `S8.M5.1 图像数值合计算错` 的排他项还错误地写着「数值本身读错（OCR 失败）→ S6.M4.1」——`S6.M4.1` 其实是"客服正文被截断"（组件 `customer_services`），既不是同一环节也不可能被输出。模型在 S8 里找不到合法去处就编 path。② 分片 <20 行时 `classify_items` 不再二分，重试耗尽即抛错，失败粒度是"整棵树"而不是"这几行"。
-- **处理**：① 新增 `S8.M5.2 图像识读结果错误`（组件 `understand_image`），并把 `S8.M5.1` 的排他项改指 `S8.M5.2`；② `bin/classify.py` 增加兜底：仅"path 不合法"这一类失败（网关异常仍照旧失败，不掩盖故障）在二分到底后按 component/机制落到本环节最相近的合法叶，行标 `edge=true`，写 `<run>/unresolved_<chunk>.json`，summary 打印 `fallback=N`，不再让整棵树 `rc=1`。复核方式：`jq -r '.[]|"\(.chunk) \(.seq) \(.model_path) -> \(.path)"' runs/<树>/run_*/unresolved_*.json`，若同一模式反复出现就说明该补叶/补判据。
+- **处理**：① 新增 `S8.M5.2 图像识读结果错误`（组件 `understand_image`），并把 `S8.M5.1` 的排他项改指 `S8.M5.2`；② `bin/classify.py` 在 4.3.2 曾加兜底（path 不合法就按 component/机制落到本环节最相近叶、标 `edge`、不中断），**4.4.4 起已取消**：缺叶是分类法的问题，落"最相近叶"等于替模型猜，还会把缺叶问题稀释进 `edge` 行里没人认领。现在一片里出现非法 path，重试+二分到底仍失败就整片失败——该片不写 `out.jsonl`（其余片照跑），整批 `rc=1`，同时在 `<run>/unresolved_<chunk>.json` 落盘模型给的原始 path。复核/修复：`jq -r '.[]|"\(.component)\t\(.seq)\t\(.model_path)"' runs/<树>/run_*/unresolved_*.json`，据此补叶或补判据，再重跑该树。
 
 ---
 
@@ -397,7 +397,7 @@ find /mnt/aime_eval_ssd/1_aime/eval_output -name '*attribution*.jsonl' | wc -l
 | 远端预检退出码 1 | 有 FAIL | 按输出修；BLOCKED 不会让退出码变 1 |
 | 两台 `code_sha256` 不同 | 有一台没同步 | 两台各跑一次 `./deploy_local.sh <渠道>` |
 | 冒烟卡在 `verify` | `--src` 指到巨大目录 | `tests/smoke.sh` 已固定 `--src tests`，别改回去 |
-| 某棵树只有 1 片失败、其余正常 | 那几行 path 模型编造/分类法缺叶 | 看 `runs/<树>/run_*/unresolved_*.json`；已加兜底不会拖垮整树，仍应补叶（见 §7.15） |
+| 某棵树只有 1 片失败、其余正常 | 那几行 path 模型编造/分类法缺叶 | 该片不交付、整批 `rc=1`（不兜底）；看 `runs/<树>/run_*/unresolved_*.json` 的 `model_path`，补叶/补判据后重跑该树（见 §7.15） |
 
 ---
 
@@ -525,3 +525,13 @@ lint errors=0 → 部署 → 补跑该树」。当天已按此处理 `stock-scre
 - 改动：`deploy_local.sh` 的 `VA_GATEWAYS` 默认值、`NO_PROXY` 增加 `10.244.192.108`；
   部署后 `.deploy/env.sh` 的 `CLUSTER_GATEWAYS` 随之更新；`README.md` / 本节同步。
 - 换网关只需改一行再 `./deploy_local.sh aime`，不需要动代码；`bin/preflight.sh` 第 5 项会逐台探活。
+
+## 16. 2026-11-16 归类取消兜底（非法叶直接中断）
+
+- `bin/classify.py`：删掉 `fallback_rows` 和 `CLUSTER_NO_FALLBACK` 开关（后者 4.4.3 短暂存在）。
+  模型给的 path 不在本环节合法叶子里、且重试+二分到底仍失败时，该片直接失败：
+  先把模型原始 path 写进 `<run>/unresolved_<chunk>.json`（字段 `model_path`），再抛出，
+  不写 `assign/<chunk>.out.jsonl`；其余片照跑，整批结束 `rc=1`。summary 去掉 `fallback=N`。
+- 口径：与「未登记组件一律中断」「宁可中断，也不猜」一致。兜底会把缺叶/幻觉稀释成 `edge` 行，
+  既看不出缺哪个叶，也没人认领。代价是缺叶那一片不交付、整批不产交付物——修复路径见 §7.15。
+- 与 4.3.2 的关系：那次为 `S8.M5.2` 缺叶补了兜底换取不停机；叶补上之后兜底反而掩盖后续缺叶，故移除。
