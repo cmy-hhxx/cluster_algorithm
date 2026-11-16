@@ -28,6 +28,7 @@ _stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "fa
 _INV = None
 _fallbacks = []
 _REUSE = {}   # seq -> {path, edge}：复用上一版判定（--reuse），命中条目不再调模型
+NO_FALLBACK = os.environ.get("CLUSTER_NO_FALLBACK", "") not in ("", "0", "false", "False")
 
 
 def log(msg):
@@ -218,6 +219,8 @@ def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth
         try:
             parts.append(classify_items(gateways, l1, chunk, sub, rules, inv, valid, retries, depth + 1))
         except InvalidOutput as e:
+            if NO_FALLBACK:
+                raise
             parts.append(fallback_rows(l1, chunk, sub, valid, e.rows, str(e)))
     return parts[0] + parts[1]
 
@@ -259,7 +262,7 @@ def run_chunk(gateways, work, meta, args):
         passes = [classify_items(gateways, l1, chunk, todo, rules, inv, valid, args.retries)
                   for _ in range(max(1, args.consensus))]
     except InvalidOutput as e:
-        if not valid:
+        if NO_FALLBACK or not valid:
             raise
         passes = [fallback_rows(l1, chunk, todo, valid, e.rows, str(e))]
     bad = [f for f in _fallbacks if f["chunk"] == chunk]
