@@ -94,9 +94,12 @@ check_gateways() {
   local g code hit=0
   for g in ${CLUSTER_GATEWAYS//,/ }; do
     [[ -n "$g" ]] || continue
-    code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' "${g%/}/models" 2>/dev/null || true)
+    code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' \
+      -H "Authorization: Bearer ${EVAL_GATEWAY_API_KEY:-dummy}" \
+      "${g%/}/models" 2>/dev/null || true)
     echo "  网关 ${g%/}/models -> ${code:-000}"
     [[ "$code" == "200" ]] && hit=$((hit + 1))
+    [[ "$code" == "401" ]] && echo "    401：网关需要 API key，检查 .deploy/env.sh 的 EVAL_GATEWAY_API_KEY" >&2
   done
   if (( hit == 0 )); then
     echo "BLOCKED CLUSTER_GATEWAYS 里没有一个可达：$CLUSTER_GATEWAYS" >&2

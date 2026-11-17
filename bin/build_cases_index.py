@@ -91,6 +91,9 @@ def main():
                 state = {}
 
     all_files = sorted(glob.glob(os.path.join(root, '**', '*.jsonl'), recursive=True))
+    # 跳过隐藏目录（.archive/ 等是规整前的备份，同一批 trace 会重复出现，白读几十 GB）
+    all_files = [f for f in all_files
+                 if not any(part.startswith('.') for part in os.path.relpath(f, root).split(os.sep)[:-1])]
     todo, new_state = [], {}
     for f in all_files:
         st = stat_of(f)

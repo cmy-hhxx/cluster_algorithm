@@ -8,8 +8,8 @@
 #   ./deploy_local.sh aime   [--dry-run] [--no-code] [--no-preflight]
 #
 # 目标机器/路径可用 .deploy/local.conf 覆盖（gitignore，不放密钥）：
-#   WL_HOST=eval_data  WL_REPO=...  WL_VENV=...  WL_ROOT=...  WL_INDEX=...  WL_GATEWAYS=...  WL_CONC=12
-#   VA_HOST=aime_rsi_data  VA_REPO=...  VA_VENV=...  VA_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output  VA_INDEX=/mnt/aime_eval_ssd  VA_GATEWAYS=http://10.244.192.108:8000/v1  VA_CONC=8
+#   WL_HOST=eval_data  WL_REPO=...  WL_VENV=...  WL_ROOT=...  WL_INDEX=...  WL_GATEWAYS=...  WL_GATEWAY_KEY=...  WL_CONC=12
+#   VA_HOST=aime_rsi_data  VA_REPO=...  VA_VENV=...  VA_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output  VA_INDEX=/mnt/aime_eval_ssd  VA_GATEWAYS=http://10.217.220.51/ai-gateway/v1  VA_GATEWAY_KEY=sk-gw-...  VA_CONC=8
 #
 # 不做的事：不装 Python 依赖、不下载字体（那些是环境初始化，见 DEPLOY.md §6，只做一次）。
 set -euo pipefail
@@ -40,6 +40,7 @@ case "$CH" in
     CASES=${WL_CASES:-$(dirname "${WL_ROOT:-/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output}")/eval_input}
     INDEX=${WL_INDEX:-/mnt/fin_bench/code_and_clean_data/datasets}
     GW=${WL_GATEWAYS:-http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1}
+    GWKEY=${WL_GATEWAY_KEY:-dummy}
     CONC=${WL_CONC:-12}
     ;;
   aime)
@@ -51,8 +52,12 @@ case "$CH" in
     # 2026-11-11 起规整后的输入在 <渠道>/eval_input（trace 粒度，提供 question/session_id）
     CASES=${VA_CASES:-$(dirname "${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}")/eval_input}
     INDEX=${VA_INDEX:-/mnt/aime_eval_ssd}
-    GW=${VA_GATEWAYS:-http://10.244.192.108:8000/v1}
-    CONC=${VA_CONC:-8}
+    # 2026-11-17 起 AIME 网关走统一网关 http://10.217.220.51/ai-gateway/v1（需要 API key）
+    # API key 不入库：写在 .deploy/local.conf 的 VA_GATEWAY_KEY（.deploy/ 已 gitignore）
+    GW=${VA_GATEWAYS:-http://10.217.220.51/ai-gateway/v1}
+    GWKEY=${VA_GATEWAY_KEY:-dummy}
+    # 2026-11-17 起网关是 LiteLLM 托管网关（按 key 限流）：并发降下来，靠 429 退避兜底
+    CONC=${VA_CONC:-4}
     ;;
   *) echo "渠道只能是 wencai 或 aime：$CH" >&2; exit 2 ;;
 esac
@@ -107,9 +112,9 @@ export AIME_CASES_ROOT="$([[ "$CH" == aime ]] && echo "$CASES")"
 export CASE_INDEX_ROOT="$INDEX"
 export CLUSTER_CONCURRENCY=$CONC
 export CLUSTER_GATEWAYS="$GW"
-export EVAL_GATEWAY_API_KEY=dummy
+export EVAL_GATEWAY_API_KEY=$GWKEY
 # 网关/内网 git 不走公司 squid（DEPLOY.md §5.2）
-export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.244.192.108,localhost,127.0.0.1"
+export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.244.192.108,10.217.220.51,localhost,127.0.0.1"
 export no_proxy="\$NO_PROXY"
 EOF
 put "$REPO/.deploy/env.sh" "$TMP"

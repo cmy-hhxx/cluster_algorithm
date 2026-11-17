@@ -36,14 +36,14 @@
 |---|---|---|
 | 渠道 `CLUSTER_CHANNEL` | `wencai` | `aime` |
 | SSH（`~/.ssh/config`） | `eval_data` | `aime_rsi_data` |
-| 容器名 | `interactive-i6piqwvlnsr5` | `interactive-npasm9ch66eb` |
+| 容器名 | `interactive-i6piqwvlnsr5` | `interactive-s3ynzadcvm9c`（2026-11-17 重建；旧 `interactive-npasm9ch66eb`） |
 | 代码目录 | `/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm` | **`/mnt/aime_eval_ssd/code/2_cluster_algorithm`**（2026-11-09 起，SSD） |
 | 数据根 `*_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets/0_wencai/eval_output` | **`/mnt/aime_eval_ssd/1_aime/eval_output`**（2026-11-09 起，SSD） |
 | 索引目录 `CASE_INDEX_ROOT` | `/mnt/fin_bench/code_and_clean_data/datasets` | **`/mnt/aime_eval_ssd`**（`bad_case_index_aime.jsonl` 落在 `1_aime` 的上一级） |
 | Python venv | 仓库内 `.venv`（历史遗留，能用就不动） | `/opt/cluster-venv`（本地盘，ceph 上装 site-packages 极慢） |
-| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | `http://10.244.192.108:8000/v1`（vLLM `deepseek-v4.1-flash`，2026-11-10 切换；旧 `10.99.116.223:8888` 已卡死弃用） |
-| 并发 `CLUSTER_CONCURRENCY` | 12 | 8 |
-| 容器配额 | 8 核 / 16 GiB / 无 swap | 6 核 / 64 GiB / 无 swap |
+| 网关 `CLUSTER_GATEWAYS` | `http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1` | `http://10.217.220.51/ai-gateway/v1`（LiteLLM 托管网关 + API key，2026-11-17 切换，见 §17；旧 `10.244.192.108:8000` 已弃用） |
+| 并发 `CLUSTER_CONCURRENCY` | 12 | 4（2026-11-17 起；托管网关按 key 限流，降并发 + 429 退避） |
+| 容器配额 | 8 核 / 16 GiB / 无 swap | **8 核 / 16 GiB** / 无 swap（2026-11-17 重建后实测；此前文档写的 64 GiB 已不适用，见 §17） |
 | 存储 | ceph-fuse，与旧容器**同一份**（同一 inode） | ceph-fuse 挂到 `/mnt/aime_eval_ssd`（2026-11-09 从 `/mnt/fin_bench/aime_rsi_data` 迁来；旧目录已删除） |
 | 公网 | pypi 不通（DNS 只给 IPv6），tuna/aliyun 通 | pypi / aliyun / github 都通 |
 | 部署 | `./deploy_local.sh wencai` | `./deploy_local.sh aime` |
@@ -535,3 +535,60 @@ lint errors=0 → 部署 → 补跑该树」。当天已按此处理 `stock-scre
 - 口径：与「未登记组件一律中断」「宁可中断，也不猜」一致。兜底会把缺叶/幻觉稀释成 `edge` 行，
   既看不出缺哪个叶，也没人认领。代价是缺叶那一片不交付、整批不产交付物——修复路径见 §7.15。
 - 与 4.3.2 的关系：那次为 `S8.M5.2` 缺叶补了兜底换取不停机；叶补上之后兜底反而掩盖后续缺叶，故移除。
+
+## 17. 2026-11-17 归类网关换成统一网关 + 弗吉尼亚容器重建（端口/内存/venv 都变了）
+
+### 17.1 网关
+
+| 项 | 值 |
+|---|---|
+| `CLUSTER_GATEWAYS` | `http://10.217.220.51/ai-gateway/v1` |
+| 类型 | LiteLLM 托管网关（不是裸 vLLM）：**按 key 限流**，`/models` 与 `/responses` 都要 `Authorization: Bearer <key>` |
+| 模型 | `deepseek-v4.1-flash`（`CLUSTER_MODEL` 默认值，无需改） |
+| key | 写在**本机** `.deploy/local.conf` 的 `VA_GATEWAY_KEY=sk-gw-...`（`.deploy/` 已 gitignore），由 `deploy_local.sh` 渲染成远端的 `EVAL_GATEWAY_API_KEY` |
+| 实测 | 无 key → 401；带 key `/models` 200、`/responses` 返回 `output_text`；`deploy_local.sh` 预检第 5 项 200 |
+| 旧网关 | `10.244.192.108:8000`（裸 vLLM，无鉴权）弃用；仍在 `NO_PROXY` 里，无副作用 |
+
+**配套代码改动**（都是"换网关就会碰到"的，不是一次性补丁）：
+
+- `deploy_local.sh`：新增 `WL_GATEWAY_KEY` / `VA_GATEWAY_KEY`（默认 `dummy`）→ 渲染 `EVAL_GATEWAY_API_KEY`；`NO_PROXY` 加 `10.217.220.51`；AIME 默认并发 8 → **4**。
+- `bin/classify.py`：① `/models` 探活带 `Authorization`（托管网关不带 key 一律 401，原来会误判"网关全挂"）；② **429/503/502/504 退避重试**，认 `Retry-After`，最多 `CLUSTER_REQUEST_ATTEMPTS`（默认 5）轮；限流时留在同一台重试，不换网关。
+- `bin/run_trees.sh` / `bin/preflight.sh`：网关探活同样带 key；401 时给出明确提示（"要 API key"），而不是笼统"不可达"。
+
+实测效果：换网关首轮，expert 47 片吸收 **59 次 429** 后 `failed=0`；fast 106 片吸收 3 次 429 后 `failed=0`。不加退避时同样的片会直接 `all gateways failed: 429`。
+
+### 17.2 容器重建（2026-11-17，端口 2225 → 2473）
+
+`aime_rsi_data` 换成新容器 `interactive-s3ynzadcvm9c`，**SSH 对外端口 2225 → 2473**（`~/.ssh/config` 与 `.servers.conf` 已更新）。ceph 挂载 `/mnt/aime_eval_ssd`（数据、代码、baseline）**未丢**；本地盘 overlay 重置了，需要重建：
+
+```bash
+# 1) venv（本地盘，重建即丢）
+python3 -m venv /opt/cluster-venv
+/opt/cluster-venv/bin/pip install -q -i https://mirrors.aliyun.com/pypi/simple/ --upgrade pip
+/opt/cluster-venv/bin/pip install -q -i https://mirrors.aliyun.com/pypi/simple/ pillow   # 实测 13.0.0
+# 2) tzdata（缺它 TZ=Asia/Shanghai 静默退化成 UTC）
+ssh aime_rsi_data 'cat > /usr/share/zoneinfo/Asia/Shanghai' < /usr/share/zoneinfo/Asia/Shanghai
+# 3) 代码 + env.sh + 预检（本机）
+./deploy_local.sh aime
+# 4) 守护进程（容器重启后 tmux 全没了，必须重拉；先起主循环再起看门狗）
+tmux new -d -s cluster-incr-aime  "CLUSTER_INTERVAL=7200 bin/channel_daemon.sh aime 7200 >> logs/incremental-aime.log 2>&1"
+tmux new -d -s cluster-watch-aime "CLUSTER_INTERVAL=7200 bin/watch_daemon.sh aime >> logs/watchdog-aime.log 2>&1"
+```
+
+**内存配额变了：16 GiB（原文档写的 64 GiB 已不适用）**，且 eval 服务常驻约 8.3 GB anon。实测影响：
+
+- `oom_kill` 计数已累计 88（容器生命周期内），16 GiB 上限对"eval 服务 + 聚类 ingest"是紧的；
+- `build_cases_index.py` 在全量重扫时会 `OSError: [Errno 12] Cannot allocate memory`（读 eval_input 大文件时）→ `run_trees.sh` 已有降级：WARN 后退回"归因自带的 question/session"，**不影响条目与判定**，只是清单里少部分身份信息；
+- 顺手修了它会把 `.archive/`（规整前备份，20 GB+）也扫进去的问题：现在跳过隐藏目录；
+- `/sys/fs/cgroup/memory.max` 只读，**容器内无法自行加内存**；要根治得让平台把配额提上去（≥32 GiB），否则大轮次（ingest 峰值约 12 GB）仍可能偶发 ENOMEM。
+
+### 17.3 重建后首次补跑（2026-11-17 20:00）
+
+4 天积压（最后成功一轮是 11-13 20:20）一次补齐：
+
+| 树 | 基线 | delta | 补后 | verify |
+|---|---|---|---|---|
+| aime_expert | 86,389 | +2,370 | **88,759** | err=0, mismatch=0 |
+| aime_fast | 236,225 | +5,962 | **242,187** | err=0, mismatch=0 |
+
+badcase 19,621（expert 2,879 / fast 16,742）、goldencase 14,159，`traces_missing_case=0`。

@@ -21,6 +21,8 @@ API_KEY = os.environ.get("EVAL_GATEWAY_API_KEY", "dummy")
 MAX_TOKENS = int(os.environ.get("CLUSTER_MAX_TOKENS", "32768"))
 TIMEOUT = int(os.environ.get("CLUSTER_TIMEOUT", "600"))
 REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模式设 low（+2.6pp，慢 5-6x）
+# 托管网关（LiteLLM）按 key 限流：429 要退避重试，不是"网关挂了"
+REQUEST_ATTEMPTS = int(os.environ.get("CLUSTER_REQUEST_ATTEMPTS", "5"))
 
 TEMPERATURE = None
 _lock = threading.Lock()
@@ -41,7 +43,9 @@ def healthy_gateways():
     out = []
     for base in GATEWAYS:
         try:
-            with opener().open(base + "/models", timeout=6) as r:
+            req = urllib.request.Request(base + "/models",
+                                         headers={"Authorization": f"Bearer {API_KEY}"})
+            with opener().open(req, timeout=6) as r:
                 if r.status == 200:
                     out.append(base)
         except Exception:
@@ -60,6 +64,23 @@ def load_rules(l1):
 _rr = itertools.count()
 
 
+def _retry_after(e):
+    """从 429/503 里取 Retry-After（秒）；取不到就按指数退避。"""
+    ra = 0
+    try:
+        hdrs = e.headers
+        if hdrs and hdrs.get("Retry-After"):
+            ra = float(hdrs.get("Retry-After"))
+    except Exception:
+        ra = 0
+    return ra
+
+
+def _is_throttle(e):
+    code = getattr(e, "code", None)
+    return code in (429, 503, 502, 504)
+
+
 def call(gateways, prompt):
     body = {"model": MODEL, "input": prompt, "max_output_tokens": MAX_TOKENS}
     if REASONING and REASONING != "default":
@@ -67,18 +88,33 @@ def call(gateways, prompt):
     if TEMPERATURE is not None:
         body["temperature"] = TEMPERATURE
     payload = json.dumps(body).encode()
+    # 托管网关（LiteLLM）会按 key 限流，429 不是"网关卡死"，退避后重试同一台即可；
+    # 只有真正连不上/鉴权失败才换下一台。整体最多 attempt 轮。
+    attempts = max(1, REQUEST_ATTEMPTS)
     last = None
     n = next(_rr) % len(gateways)
-    for base in gateways[n:] + gateways[:n]:
-        req = urllib.request.Request(
-            base + "/responses", data=payload,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"})
-        try:
-            with opener().open(req, timeout=TIMEOUT) as r:
-                _stats["calls"] += 1
-                return json.loads(r.read())
-        except Exception as e:  # noqa: BLE001
-            last = e
+    order = gateways[n:] + gateways[:n]
+    for attempt in range(attempts):
+        throttled = False
+        for base in order:
+            req = urllib.request.Request(
+                base + "/responses", data=payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"})
+            try:
+                with opener().open(req, timeout=TIMEOUT) as r:
+                    _stats["calls"] += 1
+                    return json.loads(r.read())
+            except Exception as e:  # noqa: BLE001
+                last = e
+                if _is_throttle(e):
+                    wait = _retry_after(e) or min(60, 2 * (2 ** attempt))
+                    log(f"  限流 {getattr(e, 'code', '?')}，{wait:.0f}s 后重试（第 {attempt + 1}/{attempts} 轮）")
+                    time.sleep(wait)
+                    throttled = True
+                    break
+        if throttled:
+            continue
+        time.sleep(min(30, 2 ** attempt))
     raise RuntimeError(f"all gateways failed: {last}")
 
 

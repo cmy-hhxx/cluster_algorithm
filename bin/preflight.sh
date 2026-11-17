@@ -91,13 +91,23 @@ echo "[5/8] 归类网关"
 if [[ -z "${CLUSTER_GATEWAYS:-}" ]]; then
   blk "CLUSTER_GATEWAYS 为空：环境装好了，但分类跑不了（等网关开通，改 .deploy/env.sh 一行）"
 else
-  HIT=0
+  HIT=0; ASKKEY=0
   for g in ${CLUSTER_GATEWAYS//,/ }; do
-    code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' "${g%/}/models" 2>/dev/null)
+    code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' \
+      -H "Authorization: Bearer ${EVAL_GATEWAY_API_KEY:-dummy}" \
+      "${g%/}/models" 2>/dev/null)
     if [[ "$code" == "200" ]]; then ok "${g%/}/models -> 200"; HIT=$((HIT + 1))
+    elif [[ "$code" == "401" ]]; then
+      warn "${g%/}/models -> 401（网关要 API key）"; ASKKEY=1
     else warn "${g%/}/models -> ${code:-000}"; fi
   done
-  (( HIT > 0 )) || blk "没有任何网关可达：${CLUSTER_GATEWAYS}（外部依赖，等开通）"
+  if (( HIT == 0 )); then
+    if (( ASKKEY )); then
+      blk "网关返回 401：EVAL_GATEWAY_API_KEY 没配或不对（改 .deploy/local.conf 的 VA_GATEWAY_KEY 后重跑 deploy_local.sh）"
+    else
+      blk "没有任何网关可达：${CLUSTER_GATEWAYS}（外部依赖，等开通）"
+    fi
+  fi
 fi
 
 echo "[6/8] 中文字体（chart 用 PIL 画图，缺字体会出方框）"
