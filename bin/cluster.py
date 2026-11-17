@@ -73,8 +73,15 @@ def sha16(path):
     return h.hexdigest()[:16]
 
 
+_CMAP = None
+
+
 def component_map():
-    return jload(os.path.join(ROOT, 'taxonomy', 'components.json'), {})
+    """components.json 每次 ingest 会被查 2×条目数次：缓存住，别反复读盘 + 解析。"""
+    global _CMAP
+    if _CMAP is None:
+        _CMAP = jload(os.path.join(ROOT, 'taxonomy', 'components.json'), {})
+    return _CMAP
 
 
 _PATTERNS = None
@@ -212,104 +219,118 @@ def cmd_ingest(a):
         sys.exit(f'no jsonl under {a.input}')
 
     cases = load_cases(a.cases)
+    cmap = component_map()
+    known = {v['tool'] for v in cmap.values()}
     base_dir = a.input if os.path.isdir(a.input) else os.path.dirname(a.input)
-    items, loc, bad = [], [], []
+    os.makedirs(a.out, exist_ok=True)
+    # 流式落盘：240k 条目全量留在 items 列表里会吃掉 5-8 GB（弗吉尼亚容器只有 16 GiB），
+    # 这里边算边写，只在内存里留去重键与统计计数。
+    traces, sessions, case_ids = set(), set(), set()
+    comp_counter = collections.Counter()
+    unknown = set()
+    bad = []
     seq = 0
     joined = missed = dup = 0
+    n_items = 0
     seen = set()
-    for f in files:
-        rel = os.path.relpath(f, base_dir).replace(os.sep, '/')
-        model_dir = os.path.basename(os.path.dirname(f))
-        channel = guess_channel(f) if a.channel == 'auto' else a.channel
-        for ln, line in enumerate(read_lines(f), 1):
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except Exception as e:
-                bad.append({'file': rel, 'line': ln, 'error': str(e)[:120]})
-                continue
-            smeta = rec.get('session_meta') or {}
-            src_rel = clean((rec.get('_source') or {}).get('original_file')) or rel
-            for ti, t in enumerate(rec.get('turns') or []):
-                meta = t.get('meta') or {}
-                tid = clean(meta.get('trace_id'))
-                c = cases.get(tid) or {}
-                if c:
-                    joined += 1
-                else:
-                    missed += 1
-                question = c.get('question') or clean(smeta.get('question'))
-                sid = c.get('session_id') or clean(smeta.get('session_id'))
-                rtime = c.get('request_time') or clean(smeta.get('request_time'))
-                batch = c.get('batch_id') or clean(rec.get('batch_id')) or (rtime[:10] if rtime else '')
-                model = c.get('model') or model_dir
-                cid = c.get('case_id') or tid
-                bid = bad_case_id(channel, question, rtime)
-                for pi, p in enumerate(as_list(t.get('problem'))):
-                    if not isinstance(p, dict):
-                        continue
-                    key = (tid, pi)
-                    if key in seen:       # 同一 trace 在 daily/lost 多个文件里重复导出：按 (trace_id, problem_index) 去重
-                        dup += 1
-                        continue
-                    seen.add(key)
-                    seq += 1
-                    tool, comp_label, stage = canon_component(clean(p.get('component')))
-                    cent = component_map().get(clean(p.get('component'))) or {}
-                    it = {
-                        'seq': seq, 'date': batch or (rtime[:10] if rtime else ''),
-                        'batch_id': batch, 'model': model, 'src_rel': src_rel,
-                        'case_id': cid, 'trace_id': tid, 'session_id': sid,
-                        'user_id': clean(smeta.get('user_id')), 'question': question,
-                        'request_time': rtime, 'request_time_iso': iso_time(rtime),
-                        'bad_case_id': bid, 'channel': channel,
-                        'turn_index': ti, 'problem_index': pi,
-                        'problem_id': clean(p.get('problem_id')),
-                        'severity': clean(p.get('severity')), 'severity_reason': clean(p.get('severity_reason')),
-                        'component': tool,
-                        'component_label': comp_label,
-                        'component_raw': clean(p.get('component')),
-                        'component_role': cent.get('role', ''),
-                        'component_family': clean(p.get('component_family')),
-                        'stage': stage,
-                        'label': clean(p.get('label')), 'definition': clean(p.get('definition')),
-                        'phenomena': clean(p.get('problem_phenomena')), 'reason': clean(p.get('reason')),
-                        'evidence': clean(p.get('evidence')),
-                        'task': clean(meta.get('task')), 'difficulty': clean(meta.get('difficulty')),
-                    }
-                    items.append(it)
-                    loc.append({k: it[k] for k in ('seq', 'date', 'batch_id', 'model', 'src_rel', 'case_id',
-                                                   'trace_id', 'session_id', 'user_id', 'bad_case_id',
-                                                   'question', 'request_time', 'problem_id', 'problem_index',
-                                                   'component', 'label', 'severity', 'turn_index')})
-    os.makedirs(a.out, exist_ok=True)
-    with open(os.path.join(a.out, 'items.jsonl'), 'w', encoding='utf-8') as fh:
-        for it in items:
-            fh.write(json.dumps(it, ensure_ascii=False) + '\n')
-    with open(os.path.join(a.out, 'locators.jsonl'), 'w', encoding='utf-8') as fh:
-        for r in loc:
-            fh.write(json.dumps(r, ensure_ascii=False) + '\n')
+    items_fh = open(os.path.join(a.out, 'items.jsonl'), 'w', encoding='utf-8')
+    loc_fh = open(os.path.join(a.out, 'locators.jsonl'), 'w', encoding='utf-8')
+    try:
+        for f in files:
+            rel = os.path.relpath(f, base_dir).replace(os.sep, '/')
+            model_dir = os.path.basename(os.path.dirname(f))
+            channel = guess_channel(f) if a.channel == 'auto' else a.channel
+            for ln, line in enumerate(read_lines(f), 1):
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception as e:
+                    bad.append({'file': rel, 'line': ln, 'error': str(e)[:120]})
+                    continue
+                smeta = rec.get('session_meta') or {}
+                src_rel = clean((rec.get('_source') or {}).get('original_file')) or rel
+                for ti, t in enumerate(rec.get('turns') or []):
+                    meta = t.get('meta') or {}
+                    tid = clean(meta.get('trace_id'))
+                    c = cases.get(tid) or {}
+                    if c:
+                        joined += 1
+                    else:
+                        missed += 1
+                    question = c.get('question') or clean(smeta.get('question'))
+                    sid = c.get('session_id') or clean(smeta.get('session_id'))
+                    rtime = c.get('request_time') or clean(smeta.get('request_time'))
+                    batch = c.get('batch_id') or clean(rec.get('batch_id')) or (rtime[:10] if rtime else '')
+                    model = c.get('model') or model_dir
+                    cid = c.get('case_id') or tid
+                    bid = bad_case_id(channel, question, rtime)
+                    for pi, p in enumerate(as_list(t.get('problem'))):
+                        if not isinstance(p, dict):
+                            continue
+                        key = (tid, pi)
+                        if key in seen:       # 同一 trace 在 daily/lost 多个文件里重复导出：按 (trace_id, problem_index) 去重
+                            dup += 1
+                            continue
+                        seen.add(key)
+                        seq += 1
+                        tool, comp_label, stage = canon_component(clean(p.get('component')))
+                        cent = cmap.get(clean(p.get('component'))) or {}
+                        it = {
+                            'seq': seq, 'date': batch or (rtime[:10] if rtime else ''),
+                            'batch_id': batch, 'model': model, 'src_rel': src_rel,
+                            'case_id': cid, 'trace_id': tid, 'session_id': sid,
+                            'user_id': clean(smeta.get('user_id')), 'question': question,
+                            'request_time': rtime, 'request_time_iso': iso_time(rtime),
+                            'bad_case_id': bid, 'channel': channel,
+                            'turn_index': ti, 'problem_index': pi,
+                            'problem_id': clean(p.get('problem_id')),
+                            'severity': clean(p.get('severity')), 'severity_reason': clean(p.get('severity_reason')),
+                            'component': tool,
+                            'component_label': comp_label,
+                            'component_raw': clean(p.get('component')),
+                            'component_role': cent.get('role', ''),
+                            'component_family': clean(p.get('component_family')),
+                            'stage': stage,
+                            'label': clean(p.get('label')), 'definition': clean(p.get('definition')),
+                            'phenomena': clean(p.get('problem_phenomena')), 'reason': clean(p.get('reason')),
+                            'evidence': clean(p.get('evidence')),
+                            'task': clean(meta.get('task')), 'difficulty': clean(meta.get('difficulty')),
+                        }
+                        items_fh.write(json.dumps(it, ensure_ascii=False) + '\n')
+                        loc_fh.write(json.dumps({k: it[k] for k in (
+                            'seq', 'date', 'batch_id', 'model', 'src_rel', 'case_id',
+                            'trace_id', 'session_id', 'user_id', 'bad_case_id',
+                            'question', 'request_time', 'problem_id', 'problem_index',
+                            'component', 'label', 'severity', 'turn_index')}, ensure_ascii=False) + '\n')
+                        n_items += 1
+                        traces.add(tid)
+                        sessions.add(sid)
+                        case_ids.add(cid)
+                        comp_counter[tool] += 1
+                        if tool not in known and not stage:
+                            unknown.add(tool)
+    finally:
+        items_fh.close()
+        loc_fh.close()
+
     stats = {
         'files': [os.path.relpath(f, base_dir) for f in files],
-        'records': len({i['trace_id'] for i in items}),
-        'sessions': len({i['session_id'] for i in items}),
-        'cases': len({i['case_id'] for i in items}),
-        'items': len(items),
+        'records': len(traces),
+        'sessions': len(sessions),
+        'cases': len(case_ids),
+        'items': n_items,
         'case_joined': joined, 'case_missing': missed, 'dup_items': dup,
         'bad_lines': bad[:20], 'bad_line_count': len(bad),
-        'components': dict(collections.Counter(i['component'] for i in items).most_common()),
+        'components': dict(comp_counter.most_common()),
     }
     jdump(stats, os.path.join(a.out, 'stats.json'))
-    cmap = jload(os.path.join(ROOT, 'taxonomy', 'components.json'), {})
-    known = {v['tool'] for v in cmap.values()}
-    unknown = sorted({i['component'] for i in items
-                      if i['component'] not in known and not i.get('stage')})
     if unknown:
+        unknown = sorted(unknown)
         jdump({'unregistered': unknown}, os.path.join(a.out, 'unregistered.json'))
         sys.exit('未登记 component（已写入 unregistered.json）：' + ', '.join(unknown) +
                  '\n请先登记到 taxonomy/components.json 并指定所属段，再重跑 ingest。')
-    print(f"items={len(items)} traces={stats['records']} sessions={stats['sessions']} "
+    print(f"items={n_items} traces={stats['records']} sessions={stats['sessions']} "
           f"components={len(stats['components'])} bad_lines={len(bad)} "
           f"cases_joined={joined} cases_missing={missed} dup_items={dup}")
 

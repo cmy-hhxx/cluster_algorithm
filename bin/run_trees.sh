@@ -119,6 +119,15 @@ ROWS=$(python3 bin/discover_trees.py --channel "$CH" \
 # 规则：缺失 / --rebuild / 超过 TTL（默认 12h）才重建；其余轮次直接用旧索引，
 # 新 trace 查不到身份时 ingest 会退回该条归因自带的 question/session（不影响条目与判定）。
 CASES_TTL_H=${CLUSTER_CASES_TTL_H:-12}
+# 容器内存紧的时候（弗吉尼亚 16 GiB，eval 服务常驻 8 GB+）重建索引会 ENOMEM：
+# 可用内存低于阈值直接跳过，本轮退回"归因自带的 question/session"，不影响条目与判定。
+mem_avail_mb() {
+  local mx cur
+  mx=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)
+  cur=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0)
+  if [[ "$mx" == "max" || -z "$mx" ]]; then echo 999999
+  else echo $(( (mx - cur) / 1048576 )); fi
+}
 need_cases=0
 if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
   if [[ ! -f "$CASES_INDEX" ]]; then need_cases=1
@@ -126,6 +135,17 @@ if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]
     age_h=$(( ( $(date +%s) - $(stat -c %Y "$CASES_INDEX") ) / 3600 ))
     echo "case 身份索引已存在（${age_h}h 前，TTL ${CASES_TTL_H}h），本轮直接用；新 trace 退回归因自带 question"
     (( age_h >= CASES_TTL_H )) && need_cases=1
+  fi
+  if (( need_cases )) && [[ "${CLUSTER_CASES_SKIP:-0}" == "1" ]]; then
+    echo "  CLUSTER_CASES_SKIP=1：跳过 cases 索引重建"
+    need_cases=0
+  fi
+  if (( need_cases )); then
+    avail=$(mem_avail_mb)
+    if (( avail < ${CLUSTER_CASES_MIN_MB:-4096} )); then
+      echo "  跳过 cases 索引重建：可用内存 ${avail}MB < 阈值 ${CLUSTER_CASES_MIN_MB:-4096}MB（容器内存紧，本轮退回自带 question）"
+      need_cases=0
+    fi
   fi
   if (( need_cases )); then
     echo "重建 case 身份索引（eval_input → trace_id，增量重扫）..."
