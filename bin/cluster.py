@@ -36,11 +36,28 @@ def jdump(obj, p):
 
 
 def read_lines(path):
-    """Read a jsonl file tolerating CESU-8/BOM/surrogate escapes and stray blank lines."""
-    with open(path, encoding='utf-8', errors='surrogatepass') as fh:
-        raw = fh.read()
-    # split on '\n' only: str.splitlines() would also split on U+2028/U+2029
-    return raw.split('\n')
+    """按行读 jsonl，容忍 CESU-8/BOM/surrogate escape 和空行。
+
+    必须流式：原来 fh.read() 整文件读进内存再 split，单文件最大 158 MB；
+    弗吉尼亚容器只有 16 GiB（eval 服务常驻 8 GB+），大文件时容易 ENOMEM。
+    newline='' 保证只在 '\n' 切分（不把 U+2028/U+2029 当换行）。
+    """
+    with open(path, encoding='utf-8', errors='surrogatepass', newline='') as fh:
+        for line in fh:
+            yield line[:-1] if line.endswith('\n') else line
+
+
+def fadvise_dontneed(path):
+    """读完的大文件把页缓存丢掉：33 GB 的归因目录每轮全量读一遍，
+    不清缓存会把 cgroup 的 memory.max 顶满（同一容器里还有 eval 服务）。"""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        finally:
+            os.close(fd)
+    except Exception:
+        pass
 
 
 def clean(s):
@@ -310,6 +327,7 @@ def cmd_ingest(a):
                         comp_counter[tool] += 1
                         if tool not in known and not stage:
                             unknown.add(tool)
+            fadvise_dontneed(f)
     finally:
         items_fh.close()
         loc_fh.close()

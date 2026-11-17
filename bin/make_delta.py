@@ -23,6 +23,18 @@ def load(path):
         return [json.loads(l) for l in fh if l.strip()]
 
 
+def iter_items(path):
+    """流式读 items.jsonl（242k 条 / 1 GB+，全量读进内存会把 16 GiB 容器顶爆）。"""
+    with open(path, encoding='utf-8') as fh:
+        for line in fh:
+            if line.strip():
+                yield json.loads(line)
+
+
+def keys(items):
+    return {tuple(str(it.get(k, '')) for k in KEY) for it in items}
+
+
 def keys(items):
     return {tuple(str(it.get(k, '')) for k in KEY) for it in items}
 
@@ -34,36 +46,48 @@ def main():
     ap.add_argument('--out', required=True, help='增量 run 目录（只含新条目）')
     a = ap.parse_args()
 
-    old_items = load(os.path.join(a.old, 'items.jsonl'))
-    new_items = load(os.path.join(a.new, 'items.jsonl'))
-    locs = {r['seq']: r for r in load(os.path.join(a.new, 'locators.jsonl'))}
-
-    seen = keys(old_items)
-    delta, dup = [], 0
-    for it in new_items:
-        k = tuple(str(it.get(f, '')) for f in KEY)
-        if k in seen:
-            dup += 1
-            continue
-        seen.add(k)                      # 同一批内部重复也压掉
-        delta.append(it)
+    # 内存口径：old 只留去重键；new 边读边写；locators 也流式过滤。
+    # 这样 24 万条 / 1 GB 级别的树也不会把两者同时展开在内存里。
+    old_path = os.path.join(a.old, 'items.jsonl')
+    new_path = os.path.join(a.new, 'items.jsonl')
+    old_n = 0
+    seen = set()
+    for it in iter_items(old_path):
+        old_n += 1
+        seen.add(tuple(str(it.get(f, '')) for f in KEY))
 
     os.makedirs(a.out, exist_ok=True)
+    delta_seqs = set()
+    stage = collections.Counter()
+    dup = 0
+    exported = 0
     with open(os.path.join(a.out, 'items.jsonl'), 'w', encoding='utf-8') as fh:
-        for it in delta:
+        for it in iter_items(new_path):
+            exported += 1
+            k = tuple(str(it.get(f, '')) for f in KEY)
+            if k in seen:
+                dup += 1
+                continue
+            seen.add(k)                  # 同一批内部重复也压掉
             fh.write(json.dumps(it, ensure_ascii=False) + '\n')
-    with open(os.path.join(a.out, 'locators.jsonl'), 'w', encoding='utf-8') as fh:
-        for it in delta:
-            fh.write(json.dumps(locs[it['seq']], ensure_ascii=False) + '\n')
+            delta_seqs.add(it['seq'])
+            stage[it.get('stage', '?')] += 1
+    if delta_seqs:
+        with open(os.path.join(a.out, 'locators.jsonl'), 'w', encoding='utf-8') as fh:
+            for r in iter_items(os.path.join(a.new, 'locators.jsonl')):
+                if r['seq'] in delta_seqs:
+                    fh.write(json.dumps(r, ensure_ascii=False) + '\n')
+    else:
+        open(os.path.join(a.out, 'locators.jsonl'), 'w').close()
 
-    stage = collections.Counter(it.get('stage', '?') for it in delta)
-    json.dump({'old': len(old_items), 'exported': len(new_items), 'delta': len(delta),
+    n_delta = len(delta_seqs)
+    json.dump({'old': old_n, 'exported': exported, 'delta': n_delta,
                'already_known': dup,
                'by_stage': dict(sorted(stage.items(), key=lambda kv: int(kv[0][1:]) if kv[0][1:].isdigit() else 99))},
               open(os.path.join(a.out, 'stats.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
-    print(f'delta: 导出 {len(new_items)} 条，已有 {dup} 条跳过，新增 {len(delta)} 条 -> {a.out}')
-    if not delta:
+    print(f'delta: 导出 {exported} 条，已有 {dup} 条跳过，新增 {n_delta} 条 -> {a.out}')
+    if not n_delta:
         print('没有新增条目，后续 chunk/classify 可跳过')
 
 
