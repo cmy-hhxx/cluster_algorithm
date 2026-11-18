@@ -13,12 +13,20 @@
 行号与绝对路径不可复现，因此 items/locators 里不再有 src_path/file/line/json_path，
 去重也不能再用 json_path。
 """
-import argparse, glob, json, os, sys
+import argparse, collections, glob, json, os, sys
 
 
 def load_jsonl(path):
     with open(path, encoding="utf-8") as fh:
         return [json.loads(l) for l in fh if l.strip()]
+
+
+def iter_jsonl(path):
+    """流式读：baseline 一轮 25 万条 / 1 GB+，全量展开成 dict 会把 16 GiB 容器顶爆。"""
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                yield json.loads(line)
 
 
 def main():
@@ -31,71 +39,81 @@ def main():
     a = ap.parse_args()
 
     key_fields = [k.strip() for k in a.dedup_key.split(",") if k.strip()]
-    seen, dropped, seq = {}, 0, 0
-    items_out, locs_out, assign_out = [], [], []
+    seen = set()
+    dropped = seq = 0
+    comp_counter = collections.Counter()
+    sessions, traces = set(), set()
     per_batch = []
 
-    for b in a.batches:
-        ipath = os.path.join(b, "items.jsonl")
-        lpath = os.path.join(b, "locators.jsonl")
-        if not os.path.exists(ipath):
-            sys.exit(f"缺少 {ipath}")
-        items = {r["seq"]: r for r in load_jsonl(ipath)}
-        locs = {r["seq"]: r for r in load_jsonl(lpath)}
-        assign = {}
-        for f in sorted(glob.glob(os.path.join(b, "assign", "*.out.jsonl"))):
-            for r in load_jsonl(f):
-                assign[r["seq"]] = r
-        missing = set(items) - set(assign)
-        if missing and not a.allow_partial:
-            sys.exit(f"{b}: {len(missing)} 条没有归类结果（先跑 run.sh classify，或加 --allow-partial）")
-        if missing:
-            print(f"  batch {b}: 跳过 {len(missing)} 条未归类条目")
-        kept = 0
-        for s in sorted(items):
-            if s not in assign:
-                continue
-            it = items[s]
-            key = tuple(str(it.get(k, "")) for k in key_fields)
-            if key in seen:
-                dropped += 1
-                continue
-            seq += 1
-            seen[key] = seq
-            it = dict(it); it["seq"] = seq
-            items_out.append(it)
-            loc = dict(locs[s]); loc["seq"] = seq
-            locs_out.append(loc)
-            r = assign[s]
-            assign_out.append({"seq": seq, "path": r["path"], "edge": bool(r.get("edge", False))})
-            kept += 1
-        per_batch.append((b, len(items), kept))
-
     os.makedirs(os.path.join(a.out, "assign"), exist_ok=True)
-    with open(os.path.join(a.out, "items.jsonl"), "w", encoding="utf-8") as fh:
-        for r in items_out:
-            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-    with open(os.path.join(a.out, "locators.jsonl"), "w", encoding="utf-8") as fh:
-        for r in locs_out:
-            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-    with open(os.path.join(a.out, "assign", "merged.out.jsonl"), "w", encoding="utf-8") as fh:
-        for r in assign_out:
-            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    open(os.path.join(a.out, "locators.jsonl"), "w").close()   # 每批 append，先清空
+    items_fh = open(os.path.join(a.out, "items.jsonl"), "w", encoding="utf-8")
+    assign_fh = open(os.path.join(a.out, "assign", "merged.out.jsonl"), "w", encoding="utf-8")
+    loc_map = {}          # 本批 old_seq -> 新 seq，用于第二遍流式写 locators
+    try:
+        for b in a.batches:
+            ipath = os.path.join(b, "items.jsonl")
+            lpath = os.path.join(b, "locators.jsonl")
+            if not os.path.exists(ipath):
+                sys.exit(f"缺少 {ipath}")
+            # assign 只留 path/edge（不需要整行），streaming 读
+            assign = {}
+            for f in sorted(glob.glob(os.path.join(b, "assign", "*.out.jsonl"))):
+                for r in iter_jsonl(f):
+                    assign[r["seq"]] = (r["path"], bool(r.get("edge", False)))
+            n_items, kept, n_missing = 0, 0, 0
+            loc_map.clear()
+            for it in iter_jsonl(ipath):
+                n_items += 1
+                old_seq = it["seq"]
+                hit = assign.get(old_seq)
+                if hit is None:
+                    n_missing += 1
+                    continue
+                key = tuple(str(it.get(k, "")) for k in key_fields)
+                if key in seen:
+                    dropped += 1
+                    continue
+                seq += 1
+                seen.add(key)
+                it = dict(it); it["seq"] = seq
+                items_fh.write(json.dumps(it, ensure_ascii=False) + "\n")
+                assign_fh.write(json.dumps({"seq": seq, "path": hit[0], "edge": hit[1]},
+                                           ensure_ascii=False) + "\n")
+                loc_map[old_seq] = seq
+                comp_counter[it["component"]] += 1
+                sessions.add(it["session_id"])
+                traces.add(it["trace_id"])
+                kept += 1
+            if n_missing and not a.allow_partial:
+                sys.exit(f"{b}: {n_missing} 条没有归类结果（先跑 run.sh classify，或加 --allow-partial）")
+            if n_missing:
+                print(f"  batch {b}: 跳过 {n_missing} 条未归类条目")
+            # locators 第二遍流式过滤（只留保留下来的 seq）
+            with open(os.path.join(a.out, "locators.jsonl"), "a", encoding="utf-8") as lfh:
+                for loc in iter_jsonl(lpath):
+                    ns = loc_map.get(loc["seq"])
+                    if ns is None:
+                        continue
+                    loc = dict(loc); loc["seq"] = ns
+                    lfh.write(json.dumps(loc, ensure_ascii=False) + "\n")
+            per_batch.append((b, n_items, kept))
+    finally:
+        items_fh.close()
+        assign_fh.close()
+
     stats = {
         "batches": [{"run": b, "items": n, "kept": k} for b, n, k in per_batch],
-        "items": len(items_out), "deduped": dropped, "dedup_key": key_fields,
-        "components": dict(sorted(
-            {c: sum(1 for r in items_out if r["component"] == c)
-             for c in {r["component"] for r in items_out}}.items(),
-            key=lambda kv: -kv[1])),
-        "sessions": len({r["session_id"] for r in items_out}),
-        "traces": len({r["trace_id"] for r in items_out}),
+        "items": seq, "deduped": dropped, "dedup_key": key_fields,
+        "components": dict(comp_counter.most_common()),
+        "sessions": len(sessions),
+        "traces": len(traces),
     }
     json.dump(stats, open(os.path.join(a.out, "stats.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=1)
     for b, n, k in per_batch:
         print(f"  batch {b}: {n} items, kept {k}")
-    print(f"merged: items={len(items_out)} deduped={dropped} sessions={stats['sessions']} -> {a.out}")
+    print(f"merged: items={seq} deduped={dropped} sessions={stats['sessions']} -> {a.out}")
 
 
 if __name__ == "__main__":

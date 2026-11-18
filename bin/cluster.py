@@ -405,11 +405,30 @@ def cmd_chunk(a):
 
 
 # ---------------------------------------------------------------- aggregate
+ITEM_KEYS = ('session_id', 'trace_id', 'case_id', 'component', 'label',
+             'definition', 'reason', 'request_time', 'date')
+LOC_KEYS = ('seq', 'case_id', 'bad_case_id', 'user_id', 'session_id', 'trace_id', 'batch_id',
+            'model', 'src_rel', 'question', 'problem_id', 'problem_index', 'severity')
+
+
+def _project(path, keys):
+    """只保留聚合真正用到的字段：items.jsonl 里的 evidence/phenomena 很大，
+    27 万条全量 dict 在 16 GiB 容器里会 ENOMEM（实测整包 3.6 GB，投影后 ~1.2 GB）。"""
+    out = {}
+    with open(path, encoding='utf-8') as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            out[r['seq']] = {k: r.get(k) for k in keys}
+    return out
+
+
 def cmd_aggregate(a):
     inv, tagdef, l4nodes = taxonomy()
     nodes = {n['id']: n for n in inv['nodes']}
-    items = {r['seq']: r for r in (json.loads(l) for l in open(os.path.join(a.work, 'items.jsonl'), encoding='utf-8'))}
-    loc = {r['seq']: r for r in (json.loads(l) for l in open(os.path.join(a.work, 'locators.jsonl'), encoding='utf-8'))}
+    items = _project(os.path.join(a.work, 'items.jsonl'), ITEM_KEYS)
+    loc = _project(os.path.join(a.work, 'locators.jsonl'), LOC_KEYS)
     leaf_tags = jload(os.path.join(ROOT, 'taxonomy', 'leaf_tags.json'), {})
 
     assign, edge = {}, set()
