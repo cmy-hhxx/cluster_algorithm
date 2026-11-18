@@ -1,5 +1,5 @@
 {
- "version": "4.4.7",
+ "version": "4.4.8",
  "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 181 模式；矩阵 67/84 有叶、17 格登记不适用；引用自检通过)",
  "created": "2026-10-28",
  "updated": "2026-11-18",
@@ -31,7 +31,8 @@
   "4.4.4 取消 classify 兜底：删掉 fallback_rows 与 CLUSTER_NO_FALLBACK，非法叶不再落「最相近叶」，该片直接失败并写 unresolved_<chunk>.json（含 model_path）供补叶，整批 rc=1；summary 去掉 fallback=N。理由见 DEPLOY.md §16",
   "4.4.5 新增 S12.M5.1「编排加工计算错」（标签 口径，组件 任务规划）：S12 环节原先缺 M5 位，模型遇到「汇总窗口遗漏/排序列用错指标/对比值未计算即填」这类条目只能编 S12.M5.1 → 该片 4 行二分到底仍失败 → 整个 aime_fast 不交付（2026-11-18 04:51 事故）。补叶后 S12 12 叶、全树 174 叶；不重判历史条目",
   "4.4.6 新增 S9.M3.1「中间推理执行失败」（标签 失败，组件 中间推理处理）：S9 原先无 M3 位，模型遇到「缺 stdin 调交互式脚本致超时/推理脚本报错超时」只能编 S9.M3.1 → expert 2026-11-18 11:19 整树不交付。补叶后 S9 23 叶、全树 175 叶",
-  "4.4.7 环节×机制矩阵体检：84 格里 61 有叶、23 空。用生产日志的 bad-paths 统计（3 个月 130 轮）找出模型真实索要过的空位，再按「该环节能否独立承接该机制」逐一裁决，补 6 叶：S1.M4.1 查询项不可执行、S1.M5.1 取数规划自算数值错、S2.M5.1 检索规划自算数值错、S5.M1.1 排了检索未执行、S8.M6.1 识图内容凭空补写、S10.M4.1 请求参数对不上工具（日志里要过 92 次）；拒补 5 处（S6.M1/S6.M2/S6.M5/S12.M4/S3.M7，缺陷分别归 S10.M2、S12.M1、S9.M5、S12.M3.1、S3.M4）。其余 17 格在 taxonomy/matrix_na.json 登记「不设叶子 + 落到哪」，新增 taxonomy/MATRIX.md、bin/export_matrix.py 与 lint 校验 matrix_hole/matrix_stale_na，以后空格必须有理由"
+  "4.4.7 环节×机制矩阵体检：84 格里 61 有叶、23 空。用生产日志的 bad-paths 统计（3 个月 130 轮）找出模型真实索要过的空位，再按「该环节能否独立承接该机制」逐一裁决，补 6 叶：S1.M4.1 查询项不可执行、S1.M5.1 取数规划自算数值错、S2.M5.1 检索规划自算数值错、S5.M1.1 排了检索未执行、S8.M6.1 识图内容凭空补写、S10.M4.1 请求参数对不上工具（日志里要过 92 次）；拒补 5 处（S6.M1/S6.M2/S6.M5/S12.M4/S3.M7，缺陷分别归 S10.M2、S12.M1、S9.M5、S12.M3.1、S3.M4）。其余 17 格在 taxonomy/matrix_na.json 登记「不设叶子 + 落到哪」，新增 taxonomy/MATRIX.md、bin/export_matrix.py 与 lint 校验 matrix_hole/matrix_stale_na，以后空格必须有理由",
+  "4.4.8 非法 path 增加「带清单重问」：重试耗尽后只挑被退回的行，附本环节全部叶子清单（id|名称|机制）+ 被退回路径的逐条原因再问一次；合法则与上一轮合法行合并、标 uncertain(edge) 进复核，回答 NONE 判缺叶立即失败，仍非法退回原二分/失败逻辑。不替模型猜、不兜底到最近叶；新增 logs/missing_leaf_<渠道>.jsonl 留痕（append-only，run_trees 每轮打印 +N 与 rejected->chosen 分布）与 unresolved 的 repair 字段；CLUSTER_PATH_REPAIR=0 可退回旧行为；tests/test_repair.py 7 例确定性测试并入 smoke"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",

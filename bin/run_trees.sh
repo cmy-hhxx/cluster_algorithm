@@ -66,6 +66,8 @@ if [[ -n "$DS" ]]; then
   AIME_CASES_ROOT=${AIME_CASES_ROOT:-$DS/1_aime/eval_input}
 fi
 CH=${CH_FLAG:-${CLUSTER_CHANNEL:-auto}}
+# 缺叶候选日志：写 logs/ 下（不随 run 目录清理），按渠道分开，classify 追加写
+export CLUSTER_REPAIR_LOG="$ROOT/logs/missing_leaf_${CH}.jsonl"
 
 WORK="$ROOT/runs"
 VER=$(python3 -c "import json;print(json.load(open('VERSION.json'))['version'])")
@@ -162,13 +164,30 @@ baseline() {
   else echo ""; fi
 }
 nitems() { if [[ -f "$1/items.jsonl" ]]; then wc -l < "$1/items.jsonl" | tr -d ' '; else echo 0; fi; }
+rep_count() {  # 缺叶候选日志当前行数（文件不存在算 0）
+  if [[ -f "$CLUSTER_REPAIR_LOG" ]]; then wc -l < "$CLUSTER_REPAIR_LOG" | tr -d ' '; else echo 0; fi
+}
+
 ledger() {  # $1=树 $2=模式 $3=条目 $4=增量 $5=耗时 $6=校验
-  python3 - "$LEDGER" "$1" "$2" "$3" "$4" "$5" "$6" "$VER" "${CH:-unknown}" <<'PY'
+  python3 - "$LEDGER" "$1" "$2" "$3" "$4" "$5" "$6" "$VER" "${CH:-unknown}" \
+           "${REP_BASE:-0}" "$CLUSTER_REPAIR_LOG" <<'PY'
 import json, os, sys, datetime
-p, tree, mode, items, delta, elapsed, verify, ver, ch = sys.argv[1:10]
+p, tree, mode, items, delta, elapsed, verify, ver, ch, base, rep = sys.argv[1:12]
 row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
        "channel": ch, "tree": tree, "mode": mode, "items": int(items), "delta": int(delta),
        "elapsed_s": int(elapsed), "verify": verify, "version": ver}
+# 本轮这片新增的缺叶候选 / 重问命中数（见 DEPLOY.md §21）
+if os.path.exists(rep):
+    ok = none = 0
+    with open(rep, encoding="utf-8") as fh:
+        for i, line in enumerate(fh):
+            if i < int(base):
+                continue
+            o = json.loads(line).get("outcome")
+            ok += o == "repaired"
+            none += o == "none"
+    if ok or none:
+        row["repaired"], row["nofit"] = ok, none
 with open(p, "a", encoding="utf-8") as fh:
     fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 PY
@@ -178,6 +197,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   local t=$1 src=$2 deliver=$3 srcroot=$4
   local out base final t0 n delta v mode
   out="$WORK/$t/out"
+  REP_BASE=$(rep_count)
 
   echo
   echo "=== $t ==="
@@ -260,6 +280,8 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
 }
 
 FAILED_TREES=""
+rep_before=0
+[[ -f "$CLUSTER_REPAIR_LOG" ]] && rep_before=$(wc -l < "$CLUSTER_REPAIR_LOG" | tr -d ' ')
 while IFS= read -r row; do
   [[ -n "$row" ]] || continue
   IFS=$'\t' read -r t ch src deliver srcroot <<< "$row"
@@ -276,6 +298,20 @@ while IFS= read -r row; do
     echo "  ✗ ${t} 失败（rc=${local_rc}，见上方日志），继续下一棵树" >&2
   fi
 done <<< "$ROWS"
+
+rep_after=0
+[[ -f "$CLUSTER_REPAIR_LOG" ]] && rep_after=$(wc -l < "$CLUSTER_REPAIR_LOG" | tr -d ' ')
+if (( rep_after > rep_before )); then
+  echo "缺叶候选 +$((rep_after - rep_before)) 条 -> ${CLUSTER_REPAIR_LOG#$ROOT/}（重问命中/无叶子可装，明细见文件）"
+  tail -n $((rep_after - rep_before)) "$CLUSTER_REPAIR_LOG" | python3 -c "
+import sys, json, collections
+c = collections.Counter()
+for line in sys.stdin:
+    d = json.loads(line)
+    c[(d.get('outcome'), d.get('rejected'), d.get('chosen'))] += 1
+for (o, p, q), n in c.most_common():
+    print(f'  {o:9} {p} -> {q or \"(无)\"} x{n}')"
+fi
 
 echo
 if [[ -n "$FAILED_TREES" ]]; then

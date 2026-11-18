@@ -23,10 +23,15 @@ TIMEOUT = int(os.environ.get("CLUSTER_TIMEOUT", "600"))
 REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模式设 low（+2.6pp，慢 5-6x）
 # 托管网关（LiteLLM）按 key 限流：429 要退避重试，不是"网关挂了"
 REQUEST_ATTEMPTS = int(os.environ.get("CLUSTER_REQUEST_ATTEMPTS", "5"))
+# 非法 path 重试耗尽后，带着「本环节合法清单」再问一次（不替模型选，只把菜单摆正）
+PATH_REPAIR = os.environ.get("CLUSTER_PATH_REPAIR", "1").strip().lower() not in ("0", "false", "no")
+REPAIR_LOG = os.environ.get("CLUSTER_REPAIR_LOG",
+                            os.path.join(ROOT, "logs", "missing_leaf_candidates.jsonl"))
 
 TEMPERATURE = None
 _lock = threading.Lock()
-_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "reused": 0}
+_stats = {"chunks": 0, "calls": 0, "items": 0, "failed": 0, "normalized": 0, "reused": 0,
+          "repaired": 0, "nofit": 0}
 _REUSE = {}   # seq -> {path, edge}：复用上一版判定（--reuse），命中条目不再调模型
 
 
@@ -157,9 +162,10 @@ def build_prompt(l1, chunk, items, rules, inv):
 class InvalidOutput(RuntimeError):
     """模型给的 path 全都不在本环节合法叶子里：缺叶或幻觉，不猜，直接失败。"""
 
-    def __init__(self, msg, rows=None):
+    def __init__(self, msg, rows=None, repair=None):
         super().__init__(msg)
         self.rows = rows or []
+        self.repair = repair or {}   # seq -> {"rejected":.., "outcome":"none"|"invalid"}
 
 
 def normalize_rows(rows, valid):
@@ -188,6 +194,148 @@ def valid_rows(rows, items, l1, valid):
     return True
 
 
+_INV = {}
+_inv_lock = threading.Lock()
+
+
+def l1_menu(l1):
+    """本环节的叶子清单（用于重问时把菜单摆正）与已定义的机制集合。"""
+    if not _INV:
+        with _inv_lock:
+            if not _INV:
+                _INV.update(json.load(open(os.path.join(ROOT, "taxonomy", "inventory.json"),
+                                           encoding="utf-8")))
+    nodes = sorted((n for n in _INV["nodes"] if n["l1"] == l1), key=lambda n: n["id"])
+    mechs = sorted({n["l2"] for n in nodes})
+    rows = [f"| `{n['id']}` | {n['name']} | {n['l2']} {_INV['l2'][n['l2']]['name']} |"
+            for n in nodes]
+    return rows, mechs
+
+
+def _why_rejected(path, mechs):
+    mech = path.split(".")[1] if path.count(".") >= 1 else "?"
+    if mech not in mechs:
+        return f"本环节没有 {mech} 这个机制"
+    return f"{mech} 在本环节只有清单里那几个序号"
+
+
+def build_repair_prompt(l1, chunk, items, rejected, rules):
+    menu, mechs = l1_menu(l1)
+    missing = [f"M{i}" for i in range(1, 8) if f"M{i}" not in mechs]
+    counts = {}
+    for p in rejected.values():
+        counts[p] = counts.get(p, 0) + 1
+    why = "\n".join(f"- `{p}`（{n} 条）：不在清单里，{_why_rejected(p, mechs)}"
+                    for p, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+    body = "\n".join(json.dumps({k: it.get(k, "") for k in
+                                 ("seq", "component", "label", "definition", "reason")},
+                                ensure_ascii=False) for it in items)
+    return f"""你是归类员，正在复核一批上一轮判定被退回的条目（共 {len(items)} 条）。
+
+{rules}
+
+## 为什么退回
+上一轮给出的 path 不在本环节的合法清单里：
+
+{why}
+
+本环节（{l1}）只定义了这些机制：{", ".join(mechs)}。{("没有 " + "、".join(missing) + "。") if missing else ""}
+
+## 本环节的合法叶子（path 只能逐字取自这里）
+| 类别 | 名称 | 机制 |
+|---|---|---|
+{chr(10).join(menu)}
+
+## 待复核条目（每行一个 JSON）
+{body}
+
+## 输出要求
+只输出恰好 {len(items)} 行 JSONL，每行一个对象：{{"seq": <原样带回>, "path": "<上面的 id>", "uncertain": <true|false>}}。
+- path 必须逐字来自上表，不要自造、不要简写、不要编序号。
+- 这批本来就是边界条目，选中后标 `uncertain=true`。
+- 只有当你确信上表**所有**叶子都会把它归到错误的机制/类别时，才写 `"path": "NONE"` —— NONE 不是新类别、不会写进树里，它只是「分类法缺这一叶」的信号，我们会据此补叶；能选最接近的就不要写 NONE。
+- 不要解释、不要代码块、不要额外字段。"""
+
+
+_repair_lock = threading.Lock()
+
+
+def note_repair(rec):
+    """缺叶候选/重问结果落盘（追加，独立于 work 目录，跑完不被清掉）。"""
+    rec["at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    try:
+        with _repair_lock:
+            os.makedirs(os.path.dirname(REPAIR_LOG) or ".", exist_ok=True)
+            with open(REPAIR_LOG, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001
+        log(f"  缺叶候选记录写失败：{e}")
+
+
+def repair_once(gateways, l1, chunk, items, last_rows, rules, valid):
+    """把被退回的那几行连同一份正确的叶子清单再问一次。
+
+    返回 (ok, rows, nofit, info)：
+      ok=True  → rows 是「上一轮合法行 + 重问修好的行」的合并结果
+      nofit=True → 模型明确说没有叶子装得下（缺叶），调用方据此快速失败
+      都不成立 → 重问也非法，交给调用方按原逻辑二分/失败
+    """
+    by_seq = {str(r.get("seq")): str(r.get("path", "")) for r in last_rows}
+    bad = [it for it in items if by_seq.get(str(it["seq"]), "") not in valid]
+    if not bad:
+        return False, None, False, {}
+    rejected = {it["seq"]: by_seq.get(str(it["seq"]), "") for it in bad}
+    prompt = build_repair_prompt(l1, chunk, bad, rejected, rules)
+    try:
+        rows = parse_rows(call(gateways, prompt))
+        _stats["normalized"] += normalize_rows(rows, valid)   # 4 段路径同样收敛到父叶
+    except Exception as e:  # noqa: BLE001
+        log(f"{chunk}: 重问调用失败（{e}），按原逻辑处理")
+        return False, None, False, {}
+    want = {it["seq"] for it in bad}
+    got = [r.get("seq") for r in rows]
+    if len(rows) != len(bad) or set(got) != want or len(set(got)) != len(got):
+        log(f"{chunk}: 重问返回 {len(rows)}/{len(bad)} 行，seq 对不上，按原逻辑处理")
+        return False, None, False, {}
+
+    nofit, fixed, info = [], [], {}
+    for r in rows:
+        seq = r.get("seq")
+        p = str(r.get("path", "")).strip().strip("`").strip()
+        if p.upper() == "NONE":
+            nofit.append(seq)
+            info[str(seq)] = {"rejected": rejected.get(seq, ""), "outcome": "none"}
+            continue
+        if p not in valid:
+            log(f"{chunk}: 重问仍给出非法 path {p!r}（seq={seq}），按原逻辑处理")
+            return False, None, False, {}
+        fixed.append(r)
+        info[str(seq)] = {"rejected": rejected.get(seq, ""), "outcome": "repaired",
+                          "chosen": p}
+    if nofit:
+        _stats["nofit"] += len(nofit)
+        log(f"{chunk}: 重问后模型判定「无叶子可装」{len(nofit)} 条（缺叶候选）："
+            f"{[rejected.get(s, '') for s in nofit[:3]]}")
+        for s in nofit:
+            it = next((x for x in bad if x["seq"] == s), {})
+            note_repair({"chunk": chunk, "l1": l1, "seq": s, "outcome": "none",
+                         "rejected": rejected.get(s, ""), "component": it.get("component", ""),
+                         "label": it.get("label", "")})
+        return False, None, True, info
+
+    for r in fixed:
+        r["uncertain"] = True          # 重问选中 = 边界判定，下游按 edge 复核
+        it = next((x for x in bad if x["seq"] == r.get("seq")), {})
+        note_repair({"chunk": chunk, "l1": l1, "seq": r.get("seq"), "outcome": "repaired",
+                     "rejected": info[str(r.get("seq"))]["rejected"], "chosen": r["path"],
+                     "component": it.get("component", ""), "label": it.get("label", "")})
+    _stats["repaired"] += len(fixed)
+    badset = {str(s) for s in rejected}
+    keep = [r for r in last_rows if str(r.get("seq")) not in badset]
+    log(f"{chunk}: 重问修好 {len(fixed)} 行 -> {[r['path'] for r in fixed]}")
+    return True, keep + fixed, False, info
+
+
 def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth=0):
     prompt = build_prompt(l1, chunk, items, rules, inv)
     last_err, last_rows, invalid = None, [], False
@@ -204,6 +352,14 @@ def classify_items(gateways, l1, chunk, items, rules, inv, valid, retries, depth
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
         time.sleep(2 + attempt * 3)
+    if invalid and PATH_REPAIR:
+        ok, rows2, nofit, info = repair_once(gateways, l1, chunk, items, last_rows, rules, valid)
+        if ok:
+            return rows2
+        if nofit:
+            # 模型明说「没有叶子装得下」：这是缺叶，二分也变不出叶子，直接失败并留痕
+            raise InvalidOutput(f"{chunk}: 重问后仍无合适叶子（缺叶候选，见 {REPAIR_LOG}）",
+                                last_rows, info)
     if depth >= 2 or len(items) < 20:
         if invalid:
             raise InvalidOutput(f"{chunk}: {last_err}", last_rows)
@@ -257,7 +413,10 @@ def run_chunk(gateways, work, meta, args):
         # 但把模型原始 path 落盘，补齐叶/补判据时能直接照着改。
         got = {str(r.get("seq")): str(r.get("path", "")) for r in e.rows}
         recs = [{"chunk": chunk, "seq": it["seq"], "component": it.get("component", ""),
-                 "label": it.get("label", ""), "model_path": got.get(str(it["seq"]), ""),
+                 "label": it.get("label", ""),
+                 "model_path": e.repair.get(str(it["seq"]), {}).get("rejected",
+                                                                   got.get(str(it["seq"]), "")),
+                 "repair": e.repair.get(str(it["seq"]), {}).get("outcome", "not-tried"),
                  "error": str(e)} for it in todo]
         dst_bad = os.path.join(work, f"unresolved_{chunk}.json")
         with open(dst_bad, "w", encoding="utf-8") as fh:
@@ -328,10 +487,15 @@ def main():
                 _stats["failed"] += 1
                 log(f"{m['chunk']}: FAILED {e}")
     dt = time.time() - t0
-    print(f"\nchunks={_stats['chunks']}/{len(manifest)} items={_stats['items']} "
-          f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']} "
-          f"reused={_stats['reused']} elapsed={dt:.0f}s "
-          f"rate={_stats['items']/max(dt,1)*60:.0f} items/min")
+    bits = [f"chunks={_stats['chunks']}/{len(manifest)} items={_stats['items']}",
+            f"calls={_stats['calls']} failed={_stats['failed']} normalized={_stats['normalized']}",
+            f"reused={_stats['reused']} elapsed={dt:.0f}s"]
+    if _stats["repaired"]:
+        bits.append(f"repaired={_stats['repaired']}")
+    if _stats["nofit"]:
+        bits.append(f"nofit={_stats['nofit']}")
+    bits.append(f"rate={_stats['items']/max(dt,1)*60:.0f} items/min")
+    print("\n" + " ".join(bits))
     if failed:
         for c, e in failed:
             print(f"  FAILED {c}: {e}")

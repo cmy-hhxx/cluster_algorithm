@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 冒烟测试：3 条样本走完 init → 假归类 → finish → verify
+# 冒烟测试：3 条样本走完 init → 假归类 → finish → verify；再跑重问机制的单测
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(dirname "$HERE"); TMP=$(mktemp -d)
 cd "$ROOT"
@@ -19,4 +19,5 @@ PY
 ./run.sh finish "$TMP/run" "$TMP/out" 3 "$ROOT/tests" >/dev/null
 python3 "$ROOT/bin/cluster.py" verify --work "$TMP/run" --out "$TMP/out" --src "$ROOT/tests" | tail -1
 rm -rf "$TMP"
+python3 "$HERE/test_repair.py" | tail -1
 echo "SMOKE OK"
