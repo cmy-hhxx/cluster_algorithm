@@ -31,8 +31,8 @@ sys.path.insert(0, HERE)
 
 from benchlib import __version__                          # noqa: E402
 from benchlib.common import jdump, jload, Taxonomy         # noqa: E402
-from benchlib.loader import (backfill_questions, dedupe, load_item_index,  # noqa: E402
-                             resolve_patterns, scan_attribution)
+from benchlib.loader import (backfill_questions, dedupe, drop_unclassified,  # noqa: E402
+                             load_item_index, resolve_patterns, scan_attribution)
 from benchlib.materialize import Materializer              # noqa: E402
 from benchlib.report import pool_stats, write_readme, write_stats  # noqa: E402
 from benchlib.sampler import plan_tiers                    # noqa: E402
@@ -201,6 +201,9 @@ def main():
     if not a.skip_messages:
         mat = Materializer(os.path.abspath(a.eval_input), build_dir, log)
 
+    cases = drop_unclassified(cases, stats)
+    log("  剔除未分类 case %d 条（任一条 problem 落不到叶）" % stats["unclassified_dropped"])
+
     log("4/6 补问句 + 去重 …")
     if mat:
         backfill_questions(cases, mat, stats)
@@ -312,6 +315,7 @@ def main():
         "q_too_short_dropped": stats["q_too_short"],
         "q_url_only_dropped": stats["q_url_only"],
         "q_short_followup_kept": stats["q_short_followup_kept"],
+        "unclassified_dropped": stats["unclassified_dropped"],
         "bad_severity": stats["bad_severity"],
     }
     manifest["elapsed_sec"] = round(time.time() - t0, 1)

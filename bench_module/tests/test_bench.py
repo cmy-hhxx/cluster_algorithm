@@ -245,10 +245,15 @@ class BenchTest(unittest.TestCase):
         self.assertIn("aime_expert", man["models"])
         self.assertGreater(man["quality"]["join_rate"], 0.8)
 
-    def test_join_fallback(self):
-        rows = load(self.path("aime_expert", "tier_400.jsonl"))
-        srcs = {p["path_source"] for r in rows for p in r["problems"]}
-        self.assertIn("component", srcs, "join 失败的条目要落到 component 兜底")
+    def test_unclassified_excluded(self):
+        # join 不上、只兜到 component 的 case 必须被剔掉：bench 里不允许出现说不清叶的 case
+        for model in ("aime_expert", "aime_fast"):
+            for r in load(self.path(model, "tier_400.jsonl")):
+                if r["severity"] == "GOLD":
+                    continue
+                self.assertTrue(r["primary"]["l3"], "非 GOLD 行必须有叶 id：%s" % r["trace_id"])
+                self.assertTrue(all(p["path_source"] == "join" for p in r["problems"]),
+                                "不允许 component 兜底的 problem：%s" % r["trace_id"])
 
     def test_deterministic(self):
         out2, _ = run_build(self.attr, self.eval_input, os.path.join(self.tmp, "rerun"))

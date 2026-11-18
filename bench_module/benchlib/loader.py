@@ -194,6 +194,23 @@ def resolve_patterns(cases, idx, tax, stats):
     return cases
 
 
+def drop_unclassified(cases, stats):
+    """只留"解释得清"的 case：主标签必须落到分类法叶（S9.M5.1）。
+
+    join 不上、只能按 component 兜到 L1 的 case 不进 bench——它在档位里既占配额、
+    又说不清是哪一种错误模式，做统计和归因都没法用。GOLD（无 problem）保留，
+    它是明确定义的"无缺陷"类，不是"未分类"。
+    """
+    keep = {}
+    for key, c in cases.items():
+        if c["worst"] and any(not p["path"] for p in c["problems"]):
+            # 主标签或任意一条 problem 落不到叶，都算"解释不清"：整条不要
+            stats["unclassified_dropped"] += 1
+            continue
+        keep[key] = c
+    return keep
+
+
 def question_from_record(rec):
     """从 eval_input 原文里捞本轮问句：meta.question → translation.question → 最后一条 user 消息。"""
     q = clean((rec.get("meta") or {}).get("question"))

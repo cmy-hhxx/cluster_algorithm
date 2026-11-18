@@ -15,11 +15,16 @@
 2. **补错误模式标签**：join 聚类产物 `cluster/<model>/item_index.jsonl`，把每条 problem 对齐到
    分类法叶 `S9.M5.1`（环节.机制.叶）。join 不上就按 `component → 段` 兜到 L1，并标
    `path_source="component"`。
-3. **补问句 + 去重**：归因里约 5% 的 case 没带 `question`（其中 P0/P1 上千条），先去
+3. **只留解释得清的 case**：每一条 problem 都必须能 join 到分类法叶（`S9.M5.1`）；只要有一条
+   落不到叶（只能按 component 兜到 L1），整条 case 剔除，不进任何档位——理由是这样的人在档位里
+   占了配额却解释不清错误模式。剔除条数写在 `manifest.json.quality.unclassified_dropped`。
+   `GOLD` 保留——它是明确定义的"无缺陷"类，不是"未分类"。
+
+4. **补问句 + 去重**：归因里约 5% 的 case 没带 `question`（其中 P0/P1 上千条），先去
    `eval_input` 原文里补回来（`meta.question → translation.question → 最后一条 user 消息`）；
    再按「规范化问句 + 单/多轮」合并重复提问（同一句话被不同用户问 100 遍只算 1 个 case，
    `dup_question` 记录合并了几条）。
-4. **分层抽样**：按 severity / L2 机制 / 单多轮 分层，抽 500 / 1000 / 5000 / 10000 档，
+5. **分层抽样**：按 severity / L2 机制 / 单多轮 分层，抽 500 / 1000 / 5000 / 10000 档，
    从 `eval_input` 取回原问句 + **多轮完整上下文**，写成自包含 JSONL。
 
 ### 为什么 case 身份是 trace 而不是会话
