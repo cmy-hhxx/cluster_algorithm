@@ -592,3 +592,33 @@ tmux new -d -s cluster-watch-aime "CLUSTER_INTERVAL=7200 bin/watch_daemon.sh aim
 | aime_fast | 236,225 | +5,962 | **242,187** | err=0, mismatch=0 |
 
 badcase 19,621（expert 2,879 / fast 16,742）、goldencase 14,159，`traces_missing_case=0`。
+
+## 18. 2026-11-18 新增 S12.M5.1「编排加工计算错」
+
+**起因**：2026-11-18 04:51 的 `aime_fast` 增量里，`S12_c001` 只有 4 条，其中
+`构建脚本首版未按周波动率排序`（seq 249025）模型判为 `S12.M5.1` —— 而 S12 只有
+`M1.1/1.2/1.3、M2.1~2.6、M3.1、M6.1` 共 11 个叶子，**没有 M5 位**。重试 3 次模型仍坚持
+M5.1，该片 4 条 <20 不二分 → 该片失败 → 整个 `aime_fast`（26.6 万条）当轮不交付、rc=1。
+证据：`runs/aime_fast/run_delta/unresolved_S12_c001.json`（`model_path`）。
+
+**改动**（三处数据 + 重导，不动代码逻辑）：
+
+| 文件 | 改动 |
+|---|---|
+| `taxonomy/inventory.json` | 新增节点 `S12.M5.1`（l2=`M5`，name=`编排加工计算错`，components=`["任务规划"]`，include/exclude 指向 `S12.M2.2`/`S12.M3.1`） |
+| `taxonomy/leaf_tags.json` | `S12.M5.1 → ["口径"]`（与其它 M5 叶子一致） |
+| `taxonomy/INV_S12.md`（生成） | `bin/export_inventory.py` 重导：骨架第 5 条、速查表、判定卡都出现 M5.1，合法叶 11→12 |
+| `VERSION.json` | 4.4.4 → **4.4.5**，taxonomy 描述 173 → 174 模式 |
+
+`taxonomy_lint`：**leaves=174 errors=0 warnings=28**（警告数与改前一致）。
+
+> 注意：重导 INV 时 `INV_S8.md` 也有一处差异——仓库里那份是 4.4.3 加 `S8.M2.1` 时忘了提交的
+> 旧版（骨架第 2 条还是旧措辞、最相近列还指向 `S8.M1.1`）。本次按 `inventory.json` +
+> `discriminators.json` 重新生成，属"补提交生成物"，不是本次改动引入。
+
+**不重判历史**：这条已经落在 `S12.M2.1`（`edge=true`）的老判定保持原样；新叶子只对以后
+新进的条目生效。若要让历史条目也吃到 M5.1，需要一次 `--rebuild` 重判（会重新调模型），
+按惯例不主动做。
+
+**验证清单**：lint errors=0 → `classify.load_rules('S12')` 合法集含 `S12.M5.1` → 部署 →
+预检 `leaves=174` → 下一轮增量若再遇同类条目可正常落 M5.1。

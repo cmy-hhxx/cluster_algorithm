@@ -1,8 +1,8 @@
 {
- "version": "4.4.4",
- "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 173 模式；引用自检通过)",
+ "version": "4.4.5",
+ "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 174 模式；引用自检通过)",
  "created": "2026-10-28",
- "updated": "2026-11-16",
+ "updated": "2026-11-18",
  "changes": [
   "1.1.0 增加会话主口径、横切标签、syndrome、comp2l1 显式映射",
   "1.2.0 提示词升级为可判定规格：决策顺序、边界裁决表、真实样例、可执行自检、反模式清单",
@@ -28,7 +28,8 @@
   "4.4.1 登记线上新组件 stock-screener（选股技能，角色 skill → S8 能力装载）；2026-11-12 11:38 aime_expert ingest 因未登记中断，本轮补登记后补跑",
   "4.4.2 登记新组件 catalyst-calendar（事件日历技能，skill → S10 请求生成的「工具选错」）：缺陷是 skill 取数指引指向会话不可用的工具；aime_expert 2026-11-12 21:11 因此中断",
   "4.4.3 新增 S8.M2.1「技能参数目标错配」：能力装载环节补齐 M2 目标错配叶子，承接 aime-finquery 相对期间解析偏差；同时加 CLUSTER_NO_FALLBACK 开关（默认关闭，4.4.4 随兜底一并删除）",
-  "4.4.4 取消 classify 兜底：删掉 fallback_rows 与 CLUSTER_NO_FALLBACK，非法叶不再落「最相近叶」，该片直接失败并写 unresolved_<chunk>.json（含 model_path）供补叶，整批 rc=1；summary 去掉 fallback=N。理由见 DEPLOY.md §16"
+  "4.4.4 取消 classify 兜底：删掉 fallback_rows 与 CLUSTER_NO_FALLBACK，非法叶不再落「最相近叶」，该片直接失败并写 unresolved_<chunk>.json（含 model_path）供补叶，整批 rc=1；summary 去掉 fallback=N。理由见 DEPLOY.md §16",
+  "4.4.5 新增 S12.M5.1「编排加工计算错」（标签 口径，组件 任务规划）：S12 环节原先缺 M5 位，模型遇到「汇总窗口遗漏/排序列用错指标/对比值未计算即填」这类条目只能编 S12.M5.1 → 该片 4 行二分到底仍失败 → 整个 aime_fast 不交付（2026-11-18 04:51 事故）。补叶后 S12 12 叶、全树 174 叶；不重判历史条目"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",
