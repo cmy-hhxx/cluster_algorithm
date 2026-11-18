@@ -622,3 +622,17 @@ M5.1，该片 4 条 <20 不二分 → 该片失败 → 整个 `aime_fast`（26.6
 
 **验证清单**：lint errors=0 → `classify.load_rules('S12')` 合法集含 `S12.M5.1` → 部署 →
 预检 `leaves=174` → 下一轮增量若再遇同类条目可正常落 M5.1。
+
+## 19. 2026-11-18 新增 S9.M3.1「中间推理执行失败」
+
+**起因**：2026-11-18 11:19 的 `aime_expert` 增量，`S9_c001` 19 条里 1 条
+`未提供 stdin 输入即调用交互式管理脚本致前台超时`（component=`中间推理处理`），
+模型判 `S9.M3.1` —— S9 只有 M1/M2/M4/M5/M6/M7，**没有 M3（执行失败）位**。
+重试 3 次仍坚持 → 该片失败 → 整棵 expert（9.4 万条）当轮不交付、rc=1。
+证据：`runs/aime_expert/run_delta/unresolved_S9_c001.json`。
+
+**改动**：`inventory.json` 新增 `S9.M3.1`（components=`["中间推理处理"]`，
+include/exclude 指向 `S9.M4.1`/`S9.M1.2`）；`leaf_tags.json` → `["失败"]`；
+`export_inventory.py` 重导（S9 22→23 叶，全树 174→175）；`VERSION` 4.4.5 → 4.4.6。
+
+`taxonomy_lint`：**leaves=175 errors=0 warnings=28**。不重判历史条目；新叶只对以后新进条目生效。
