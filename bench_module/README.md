@@ -93,7 +93,7 @@ tier 10000: golden 2000 | P0 1769(封顶于池子) | P1 ~2492 | P2 ~1869 | P3 ~1
 | `severity` | `P0`–`P4` / `GOLD`（= 无 problem） |
 | `primary` | 主标签 `{l1, l2, l3}`（`S9` / `M5` / `S9.M5.1`） |
 | `problems` | 全部 problem，每条含 `severity / label / path / path_source / component` |
-| `stats` | `total_tokens / input_tokens / difficulty / tool_count / latency / dup_question` |
+| `stats` | `total_tokens / input_tokens / tool_count / latency / dup_question` |
 | `meta` | 轨迹元信息白名单（工具名、技能名、时长、来源渠道等） |
 | `bench` | `{tier, rank, seed, pool_size, stratum}` — 抽样可复算所需 |
 
@@ -105,8 +105,9 @@ tier 10000: golden 2000 | P0 1769(封顶于池子) | P1 ~2492 | P2 ~1869 | P3 ~1
 dim,key,bucket,count,share_in_bench,share_in_pool,delta_pp
 ```
 
-- `dim`：维度名（severity / stage / mechanism / pattern / turn_type / day / difficulty /
+- `dim`：维度名（severity / stage / mechanism / pattern / turn_type / day /
   tokens / round / group / recalled_from / pattern_source）
+  （难度 difficulty 标签已废弃、大面积缺失，不参与统计）
 - `key`：机器码（`S9` / `M5` / `S9.M5.1`）；`bucket`：人读名（答案合成 / 加工计算错误 / 叶名）
 - `delta_pp`：bench 占比减池子占比（百分点）。**这是判断"抽偏没偏"的唯一指标**
 

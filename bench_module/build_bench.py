@@ -41,7 +41,7 @@ META_KEYS = ["trace_id", "session_id", "turn_index", "model", "agent_id", "name"
              "mode", "runtime_mode", "timestamp", "latency", "n_messages",
              "n_observations", "total_tokens", "input_tokens", "output_tokens",
              "tool_count", "tool_names_text", "skill_count", "skill_names_text",
-             "difficulty", "outcome", "status", "comefrom", "source",
+             "outcome", "status", "comefrom", "source",
              "recalled_from", "recalled_date", "question_at", "run_started_at",
              "ended_at", "question_length", "rued", "rued_hits", "answer_preview"]
 
@@ -78,7 +78,7 @@ def bench_row(c, rec, tier, rank, params, pool_size):
             "component": p["component"],
             "component_role": p["component_role"],
         })
-    return {
+    row = {
         "trace_id": c["trace_id"],
         "session_id": c["session_id"],
         "model": c["model"],
@@ -95,10 +95,10 @@ def bench_row(c, rec, tier, rank, params, pool_size):
         "stats": {
             "total_tokens": c["total_tokens"],
             "input_tokens": c["input_tokens"],
-            "difficulty": c["difficulty"],
             "tool_count": tmeta.get("tool_count"),
             "latency": tmeta.get("latency"),
             "dup_question": c["dup_count"],
+            "short_followup": bool(c.get("short_followup")),
         },
         "meta": meta,
         "messages": tr.get("messages") or [],
@@ -112,6 +112,9 @@ def bench_row(c, rec, tier, rank, params, pool_size):
                         "turn": c["turn"]},
         },
     }
+    if c.get("question_full"):
+        row["question_full"] = c["question_full"]   # 被系统模板污染的原问句，留档可回溯
+    return row
 
 
 def write_tier(path, cases, mat, tier, params, pool_size, log, stats):
@@ -144,6 +147,10 @@ def main():
     ap.add_argument("--p0-cap", type=float, default=0.25)
     ap.add_argument("--long-tokens", type=int, default=65536)
     ap.add_argument("--long-share", type=float, default=0.02)
+    ap.add_argument("--min-question-chars", type=int, default=6,
+                    help="问句归一化后短于这个长度就剔除（默认 6）")
+    ap.add_argument("--keep-low-quality", action="store_true",
+                    help="保留过短/裸 URL 的问句（默认剔除）")
     ap.add_argument("--skip-messages", action="store_true",
                     help="只出统计与清单骨架（不取 messages），用于快速试跑")
     a = ap.parse_args()
@@ -162,6 +169,8 @@ def main():
         "p0_cap": a.p0_cap,
         "long_tokens": a.long_tokens,
         "long_share": a.long_share,
+        "min_question_chars": a.min_question_chars,
+        "drop_low_quality": not a.keep_low_quality,
         "tiers": tiers,
         "models": models,
         "channel": "aime",
@@ -196,9 +205,11 @@ def main():
     if mat:
         backfill_questions(cases, mat, stats)
         log("  从 eval_input 补回问句 %d 条" % stats["q_backfilled"])
-    pool = dedupe(cases, a.long_tokens, stats)
-    log("  去重后 %d（合并同问句 %d 条，空问句 %d）"
-        % (len(pool), stats["dup_collapsed"], stats["empty_question"]))
+    pool = dedupe(cases, a.long_tokens, stats, a.min_question_chars, not a.keep_low_quality)
+    log("  去重后 %d（合并同问句 %d；剔除：空问句 %d / 单轮过短 %d / 单轮裸URL %d；"
+        "保留多轮短追问 %d）"
+        % (len(pool), stats["dup_collapsed"], stats["empty_question"],
+           stats["q_too_short"], stats["q_url_only"], stats["q_short_followup_kept"]))
 
     manifest = {
         "module": "bench_module", "version": __version__,
@@ -298,6 +309,9 @@ def main():
         "join_rate": join_rate,
         "join_miss_problems": stats["join_miss"],
         "q_backfilled": stats["q_backfilled"],
+        "q_too_short_dropped": stats["q_too_short"],
+        "q_url_only_dropped": stats["q_url_only"],
+        "q_short_followup_kept": stats["q_short_followup_kept"],
         "bad_severity": stats["bad_severity"],
     }
     manifest["elapsed_sec"] = round(time.time() - t0, 1)

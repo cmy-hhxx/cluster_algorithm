@@ -29,7 +29,6 @@ def dim_defs(tax):
         ("pattern", lambda c: c["l3"] or "NA", lambda k: tax.leaf_name(k) or k),
         ("turn_type", lambda c: c["turn"], lambda k: k),
         ("day", lambda c: c["day"] or "unknown", lambda k: k),
-        ("difficulty", lambda c: c["difficulty"] or "unknown", lambda k: k),
         ("tokens", lambda c: tokens_bucket(c["total_tokens"]), lambda k: k),
         ("round", lambda c: round_bucket(c["session_round"]), lambda k: k),
         ("group", lambda c: c["group"] or "unknown", lambda k: k),
@@ -89,8 +88,8 @@ def write_coverage(path, tables, tol_pp=10.0):
     """每维一行：最大偏差、池里有但 bench 完全没采到的 key 数、是否在容差内。
 
     `by_design` 的维度是**故意**偏离池子分布的（严重度封顶、机制均分、单多轮 75:25），
-    它们的 delta_pp 是设计结果、不是抽样误差；真正的抽样质量看 day / difficulty /
-    tokens / round / group / recalled_from 这几维——这些应该贴近 0。
+    它们的 delta_pp 是设计结果、不是抽样误差；真正的抽样质量看 day / tokens /
+    round / group / recalled_from 这几维——这些应该贴近 0。
     """
     with open(path, "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
@@ -219,7 +218,7 @@ README_TMPL = """# AIME 动态 bench（数据说明）
 | `severity` | `P0`–`P4` / `GOLD`（GOLD = 归因未发现任何 problem） |
 | `primary` | 主标签，`{{l1,l2,l3}}` 形如 `S9` / `M5` / `S9.M5.1` |
 | `problems[]` | 全部 problem：`severity / label / path / path_source / component` |
-| `stats` | `total_tokens / input_tokens / difficulty / tool_count / latency / dup_question` |
+| `stats` | `total_tokens / input_tokens / tool_count / latency / dup_question` |
 | `meta` | 轨迹元信息白名单 |
 | `bench` | `{{tier, rank, seed, pool_size, stratum}}` — 复算抽样所需 |
 
@@ -235,12 +234,15 @@ dim,key,bucket,count,share_in_bench,share_in_pool,delta_pp
 ### 怎么读 `delta_pp`（重要）
 
 `coverage.csv` 里 `by_design=yes` 的维度（severity / stage / mechanism / pattern / turn_type /
-pattern_source）**故意**偏离池子分布：bench 就是要多放 P0、每个机制都要有、单多轮按 75:25。
+pattern_source）**故意**偏离池子分布：bench 就是要多放 P0、每个机制都要有、单多轮按 75:25，
 这些维度的 `delta_pp` 是设计结果，不是抽样误差。
 
-真正衡量抽样质量的是**非**设计维度——`day` / `difficulty` / `tokens` / `round` / `group` /
-`recalled_from`：这些应该贴近 0（当前都在 7pp 以内）。如果哪天它们飙了，说明抽样产生了
-时间或来源上的偏斜，要查。
+真正衡量抽样质量的是**非**设计维度——`day` / `tokens` / `round` / `group` /
+`recalled_from`：这些应该贴近 0。
+
+如果上面这几维哪天飙了，说明抽样产生了时间或来源上的偏斜，要查。
+
+> 难度（difficulty）标签已废弃且大面积缺失，不参与分层与统计。
 
 ## 三条必须知道的口径
 

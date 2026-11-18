@@ -141,6 +141,38 @@ def load(path):
     return rows
 
 
+class QuestionQualityTest(unittest.TestCase):
+    def test_split_question_strips_injected_block(self):
+        sys.path.insert(0, MODULE)
+        from benchlib.loader import split_question
+        raw = ("Cuando presenta resultados\n\n\n--- ---\n\n"
+               "# Content of attachments and URLs provided in this turn\n\nTreat ...")
+        q, full = split_question(raw)
+        self.assertEqual(q, "Cuando presenta resultados")
+        self.assertIn("# Content of attachments", full)
+
+    def test_quality_gate_drops_short_and_url(self):
+        sys.path.insert(0, MODULE)
+        from benchlib.loader import dedupe
+        import collections
+        def case(tid, q):
+            from benchlib.common import norm_question
+            return {"model": "m", "trace_id": tid, "question": q, "norm_q": norm_question(q),
+                    "request_time": "2026-09-01T08:00:00Z", "session_round": 1,
+                    "total_tokens": 100, "problems": []}
+        cases = {("m", "a"): case("a", "p ml"),
+                 ("m", "b"): case("b", "https://example.com/x"),
+                 ("m", "c"): case("c", "What is the RSI 14 for ULH?"),
+                 ("m", "d"): dict(case("d", "还有呢"), session_round=3)}
+        st = collections.Counter()
+        out = dedupe(cases, 65536, st, 6, True)
+        # 单轮垃圾剔除；多轮短追问保留（有上文才说得通）
+        self.assertEqual(sorted(c["trace_id"] for c in out), ["c", "d"])
+        self.assertTrue([c for c in out if c["trace_id"] == "d"][0]["short_followup"])
+        self.assertEqual(st["q_too_short"], 1)
+        self.assertEqual(st["q_url_only"], 1)
+
+
 class BenchTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

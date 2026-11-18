@@ -6,6 +6,7 @@
 import collections
 import glob
 import os
+import re
 
 from .common import clean, iso_time, norm_question, read_jsonl, request_day
 
@@ -29,6 +30,24 @@ def _attr_files(root, models):
             if "attribution" in fn and fn.endswith(".jsonl"):
                 out.append((os.path.join(dirpath, fn), model))
     return out
+
+
+Q_CUTS = ("\n\n--- ---\n", "\n--- ---\n", "# Content of attachments and URLs",
+          "# Attachments and URLs", "# Content of attachments")
+
+
+def split_question(raw):
+    """问句里常被塞进系统注入块（附件/URL 处理说明），把它切掉。
+
+    例："Cuando presenta resultados ... \n\n\n--- ---\n\n# Content of attachments ..."
+    → 真问句只有前半段。切完为空就保留原文（宁可脏，不要丢）。
+    """
+    q = clean(raw)
+    cut = min((q.find(m) for m in Q_CUTS if q.find(m) > 0), default=-1)
+    if cut <= 0:
+        return q, ""
+    head = q[:cut].strip()
+    return (head, q) if head else (q, "")
 
 
 def _int(v):
@@ -56,13 +75,15 @@ def scan_attribution(root, models, stats):
                 key = (model, tid)
                 c = cases.get(key)
                 if c is None:
-                    q = clean(sm.get("question")) or clean(tm.get("question"))
+                    raw_q = clean(sm.get("question")) or clean(tm.get("question"))
+                    q, qfull = split_question(raw_q)
                     rt = iso_time(sm.get("request_time") or tm.get("timestamp"))
                     c = cases[key] = {
                         "model": model,
                         "trace_id": tid,
                         "session_id": clean(sm.get("session_id")) or clean(tm.get("session_id")),
                         "question": q,
+                        "question_full": qfull,
                         "norm_q": norm_question(q),
                         "request_time": rt,
                         # 归因记录本身大多没有 batch_id：用请求日兜，定位原文时点名的就是这天的文件
@@ -72,7 +93,6 @@ def scan_attribution(root, models, stats):
                         "turn_index": _int(tm.get("turn_index")),
                         "total_tokens": _int(tm.get("total_tokens")),
                         "input_tokens": _int(tm.get("input_tokens")),
-                        "difficulty": clean(tm.get("difficulty")),
                         "recalled_from": clean(sm.get("recalled_from")),
                         "comefrom": clean(sm.get("comefrom")),
                         "source": clean(sm.get("source")),
@@ -214,7 +234,9 @@ def backfill_questions(cases, mat, stats):
             continue
         q = question_from_record(rec)
         if q:
+            q, qfull = split_question(q)
             c["question"] = q
+            c["question_full"] = qfull
             c["norm_q"] = norm_question(q)
             stats["q_backfilled"] += 1
     return cases
@@ -231,13 +253,32 @@ def _better(a, b):
     return SEV_ORDER.get(a["worst"], 9) < SEV_ORDER.get(b["worst"], 9)
 
 
-def dedupe(cases, long_tokens, stats):
-    """trace 天然唯一；再按「规范化问句 + 单/多轮」合并重复提问。"""
+URL_ONLY = re.compile(r"^\s*https?://\S+\s*$", re.I)
+
+
+def dedupe(cases, long_tokens, stats, min_chars=6, drop_low_quality=True):
+    """trace 天然唯一；再按「规范化问句 + 单/多轮」合并重复提问。
+
+    同时做一道质量闸（`drop_low_quality`）：问句归一化后短于 `min_chars`、或整条就是一个 URL 的，
+    直接剔除——它们没有可评的内容，进了 bench 只会稀释分数。剔除条数记进 stats。
+    """
     best = {}
     for c in cases.values():
         if not c["norm_q"]:
             stats["empty_question"] += 1
             continue
+        multi = c["session_round"] > 1
+        if drop_low_quality and not multi:
+            # 单轮的短问句/裸 URL 没有可评内容；多轮的追问（"还有呢？"）有上文，不算垃圾
+            if len(c["norm_q"]) < min_chars:
+                stats["q_too_short"] += 1
+                continue
+            if URL_ONLY.match(c["question"] or ""):
+                stats["q_url_only"] += 1
+                continue
+        elif multi and len(c["norm_q"]) < min_chars:
+            c["short_followup"] = True
+            stats["q_short_followup_kept"] += 1
         c["turn"] = "multi" if c["session_round"] > 1 else "single"
         c["long"] = c["total_tokens"] >= long_tokens
         c["day"] = request_day(c["request_time"])
