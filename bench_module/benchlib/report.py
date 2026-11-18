@@ -7,37 +7,36 @@
 """
 import collections
 import csv
+import glob
 import os
 
-from .common import jdump, round_bucket, tokens_bucket
+from .common import jdump, round_bucket
 
 CSV_COLS = ["dim", "key", "bucket", "count", "share_in_bench", "share_in_pool", "delta_pp"]
 
 
-def _primary_source(c):
-    s = set(p.get("path_source") for p in c["problems"])
-    if not s:
-        return "none"
-    return "join" if "join" in s else "component"
-
-
 def dim_defs(tax):
+    """(维度名, 取值函数, 人读名函数, 是否只看有缺陷的 case)。
+
+    stage / mechanism / pattern 只统计**有缺陷**的 case：GOLD 是"无缺陷"，它没有环节/机制/叶，
+    混进来会变成 NA 桶——看板上就是说不清的"其他"。severity 维度保留 GOLD，那才是它的位置。
+    """
     return [
-        ("severity", lambda c: c["worst"] or "GOLD", lambda k: k),
-        ("stage", lambda c: c["l1"] or "NA", tax.stage_name),
-        ("mechanism", lambda c: c["l2"] or "NA", tax.mech_name),
-        ("pattern", lambda c: c["l3"] or "NA", lambda k: tax.leaf_name(k) or k),
-        ("turn_type", lambda c: c["turn"], lambda k: k),
-        ("day", lambda c: c["day"] or "unknown", lambda k: k),
-        ("tokens", lambda c: tokens_bucket(c["total_tokens"]), lambda k: k),
-        ("round", lambda c: round_bucket(c["session_round"]), lambda k: k),
-        ("group", lambda c: c["group"] or "unknown", lambda k: k),
-        ("recalled_from", lambda c: c["recalled_from"] or "unknown", lambda k: k),
-        ("pattern_source", _primary_source, lambda k: k),
+        ("severity", lambda c: c["worst"] or "GOLD", lambda k: k, False),
+        ("stage", lambda c: c["l1"] or "NA", tax.stage_name, True),
+        ("mechanism", lambda c: c["l2"] or "NA", tax.mech_name, True),
+        ("pattern", lambda c: c["l3"] or "NA", lambda k: tax.leaf_name(k) or k, True),
+        ("turn_type", lambda c: c["turn"], lambda k: k, False),
+        ("day", lambda c: c["day"], lambda k: k, False),
+        ("round", lambda c: round_bucket(c["session_round"]), lambda k: k, False),
+        ("group", lambda c: c["group"], lambda k: k, False),
     ]
 
 
-def dim_table(pool, bench, name, key_fn, label_fn):
+def dim_table(pool, bench, name, key_fn, label_fn, only_defect=False):
+    if only_defect:
+        pool = [c for c in pool if c["worst"]]
+        bench = [c for c in bench if c["worst"]]
     pc = collections.Counter(key_fn(c) for c in pool)
     bc = collections.Counter(key_fn(c) for c in bench)
     npool, nbench = len(pool) or 1, len(bench) or 1
@@ -51,7 +50,8 @@ def dim_table(pool, bench, name, key_fn, label_fn):
 
 
 def all_tables(pool, bench, tax):
-    return {name: dim_table(pool, bench, name, kf, lf) for name, kf, lf in dim_defs(tax)}
+    return {name: dim_table(pool, bench, name, kf, lf, only_defect)
+            for name, kf, lf, only_defect in dim_defs(tax)}
 
 
 def write_dim_csvs(stats_dir, tier, tables):
@@ -66,6 +66,8 @@ def write_dim_csvs(stats_dir, tier, tables):
 
 def write_crosstab(path, pool, bench, tax):
     """环节 × 机制交叉表：bench 计数 + 池子计数，看覆盖有没有成片空白。"""
+    pool = [c for c in pool if c["worst"]]
+    bench = [c for c in bench if c["worst"]]
     pcs = collections.Counter((c["l1"] or "NA", c["l2"] or "NA") for c in pool)
     bcs = collections.Counter((c["l1"] or "NA", c["l2"] or "NA") for c in bench)
     stages = sorted({k[0] for k in pcs} | {k[0] for k in bcs})
@@ -81,7 +83,7 @@ def write_crosstab(path, pool, bench, tax):
                    + [len(bench), len(pool)])
 
 
-BY_DESIGN = {"severity", "stage", "mechanism", "pattern", "turn_type", "pattern_source"}
+BY_DESIGN = {"severity", "stage", "mechanism", "pattern", "turn_type"}
 
 
 def write_coverage(path, tables, tol_pp=10.0):
@@ -104,20 +106,13 @@ def write_coverage(path, tables, tol_pp=10.0):
                         "by_design" if designed else ("yes" if mx <= tol_pp else "NO")])
 
 
-def percentile(vals, q):
-    if not vals:
-        return 0
-    s = sorted(vals)
-    i = min(len(s) - 1, int(round(q * (len(s) - 1))))
-    return s[i]
-
-
 def pool_stats(pool, tax, params):
     """池子全量分布：bench 是否无偏，全靠这份基准。"""
     tabs = {}
-    for name, kf, lf in dim_defs(tax):
-        cnt = collections.Counter(kf(c) for c in pool)
-        n = len(pool) or 1
+    for name, kf, lf, only_defect in dim_defs(tax):
+        src = [c for c in pool if c["worst"]] if only_defect else pool
+        cnt = collections.Counter(kf(c) for c in src)
+        n = len(src) or 1
         tabs[name] = [{"key": k, "bucket": lf(k), "count": v, "share": round(v / n, 6)}
                       for k, v in sorted(cnt.items())]
     return {
@@ -125,11 +120,6 @@ def pool_stats(pool, tax, params):
         "by_severity": dict(sorted(collections.Counter(c["worst"] or "GOLD" for c in pool).items())),
         "by_turn": dict(collections.Counter(c["turn"] for c in pool)),
         "by_model": dict(collections.Counter(c["model"] for c in pool)),
-        "tokens": {
-            "p50": percentile([c["total_tokens"] for c in pool], 0.50),
-            "p90": percentile([c["total_tokens"] for c in pool], 0.90),
-            "p99": percentile([c["total_tokens"] for c in pool], 0.99),
-        },
         "n_patterns": len({c["l3"] for c in pool if c["l3"]}),
         "n_mechanisms": len({c["l2"] for c in pool if c["l2"]}),
         "n_stages": len({c["l1"] for c in pool if c["l1"]}),
@@ -148,24 +138,22 @@ def tier_stats(tier, plan, bench, pool, tax, params):
         "severity_actual": dict(sorted(collections.Counter(
             c["worst"] or "GOLD" for c in bench).items())),
         "stage_actual": {k: v for k, v in sorted(collections.Counter(
-            (c["l1"] or "NA") for c in bench).items())},
+            c["l1"] for c in bench if c["worst"]).items())},
         "mechanism_actual": {k: v for k, v in sorted(collections.Counter(
-            (c["l2"] or "NA") for c in bench).items())},
+            c["l2"] for c in bench if c["worst"]).items())},
         "turn_actual": dict(collections.Counter(c["turn"] for c in bench)),
         "pool_size": len(pool),
         "pool_by_severity": dict(sorted(collections.Counter(
             c["worst"] or "GOLD" for c in pool).items())),
-        "tokens": {
-            "p50": percentile([c["total_tokens"] for c in bench], 0.50),
-            "p90": percentile([c["total_tokens"] for c in bench], 0.90),
-            "p99": percentile([c["total_tokens"] for c in bench], 0.99),
-        },
         "params": params,
     }
 
 
 def write_stats(stats_dir, tier, plan, bench, pool, tax, params):
     os.makedirs(stats_dir, exist_ok=True)
+    # 只覆盖写不删旧文件的话，下线过的维度（如 difficulty）会一直留在目录里误导人
+    for f in glob.glob(os.path.join(stats_dir, "tier_%d.*" % tier)):
+        os.unlink(f)
     st = tier_stats(tier, plan, bench, pool, tax, params)
     jdump(st, os.path.join(stats_dir, "tier_%d.json" % tier))
     tabs = all_tables(pool, bench, tax)
@@ -229,12 +217,14 @@ dim,key,bucket,count,share_in_bench,share_in_pool,delta_pp
 ```
 
 - `bucket` 是人读名（`stage` → 答案合成，`mechanism` → 加工计算错误，`pattern` → 叶名）
+- `stage / mechanism / pattern` 三张表**只统计有缺陷的 case**（GOLD 无环节/机制/叶，不混进来；
+  它在 `severity` 维度里就是 `GOLD` 一档）
 - `delta_pp` = bench 占比 − 池子占比（百分点）
 
 ### 怎么读 `delta_pp`（重要）
 
-`coverage.csv` 里 `by_design=yes` 的维度（severity / stage / mechanism / pattern / turn_type /
-pattern_source）**故意**偏离池子分布：bench 就是要多放 P0、每个机制都要有、单多轮按 75:25，
+`coverage.csv` 里 `by_design=yes` 的维度（severity / stage / mechanism / pattern / turn_type）
+**故意**偏离池子分布：bench 就是要多放 P0、每个机制都要有、单多轮按 75:25，
 这些维度的 `delta_pp` 是设计结果，不是抽样误差。
 
 真正衡量抽样质量的是**非**设计维度——`day` / `tokens` / `round` / `group` /

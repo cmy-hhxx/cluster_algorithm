@@ -11,6 +11,7 @@
 
 用法：python3 bench_module/tests/test_bench.py
 """
+import csv
 import json
 import os
 import random
@@ -159,7 +160,8 @@ class QuestionQualityTest(unittest.TestCase):
             from benchlib.common import norm_question
             return {"model": "m", "trace_id": tid, "question": q, "norm_q": norm_question(q),
                     "request_time": "2026-09-01T08:00:00Z", "session_round": 1,
-                    "total_tokens": 100, "problems": []}
+                    "total_tokens": 100, "problems": [], "group": "0_daily_eval",
+                    "day": "2026-09-01"}
         cases = {("m", "a"): case("a", "p ml"),
                  ("m", "b"): case("b", "https://example.com/x"),
                  ("m", "c"): case("c", "What is the RSI 14 for ULH?"),
@@ -254,6 +256,17 @@ class BenchTest(unittest.TestCase):
                 self.assertTrue(r["primary"]["l3"], "非 GOLD 行必须有叶 id：%s" % r["trace_id"])
                 self.assertTrue(all(p["path_source"] == "join" for p in r["problems"]),
                                 "不允许 component 兜底的 problem：%s" % r["trace_id"])
+
+    def test_no_catchall_buckets(self):
+        # 口径铁律：不许出现 NA / unknown / 其他 这种兜底桶
+        banned = {"", "NA", "unknown", "其他", "other", "Other", "unknown "}
+        for model in ("aime_expert", "aime_fast"):
+            for f in os.listdir(self.path(model, "stats")):
+                if not f.startswith("tier_400.dim_"):
+                    continue
+                with open(self.path(model, "stats", f), encoding="utf-8") as fh:
+                    for row in csv.DictReader(fh):
+                        self.assertNotIn(row["bucket"], banned, "%s 出现兜底桶：%s" % (f, row))
 
     def test_deterministic(self):
         out2, _ = run_build(self.attr, self.eval_input, os.path.join(self.tmp, "rerun"))

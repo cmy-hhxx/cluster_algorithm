@@ -195,17 +195,16 @@ def resolve_patterns(cases, idx, tax, stats):
 
 
 def drop_unclassified(cases, stats):
-    """只留"解释得清"的 case：主标签必须落到分类法叶（S9.M5.1）。
+    """只留"解释得清"的 case：每一条 problem 都必须落到分类法叶（S9.M5.1）。
 
-    join 不上、只能按 component 兜到 L1 的 case 不进 bench——它在档位里既占配额、
-    又说不清是哪一种错误模式，做统计和归因都没法用。GOLD（无 problem）保留，
-    它是明确定义的"无缺陷"类，不是"未分类"。
+    join 不上的 case 不进 bench——它在档位里既占配额、又说不清是哪一种错误模式。
+    GOLD（无 problem）保留：它是明确定义的"无缺陷"类。
     """
     keep = {}
     for key, c in cases.items():
         if c["worst"] and any(not p["path"] for p in c["problems"]):
             # 主标签或任意一条 problem 落不到叶，都算"解释不清"：整条不要
-            stats["unclassified_dropped"] += 1
+            stats["join_failed_dropped"] += 1
             continue
         keep[key] = c
     return keep
@@ -300,6 +299,10 @@ def dedupe(cases, long_tokens, stats, min_chars=6, drop_low_quality=True):
         c["long"] = c["total_tokens"] >= long_tokens
         c["day"] = request_day(c["request_time"])
         c["dup_count"] = 1
+        if not c["day"] or not c["group"]:
+            # 维度值必须完整：缺日期/缺来源会让统计出现空桶，直接不进池
+            stats["meta_incomplete_dropped"] += 1
+            continue
         k = (c["model"], c["norm_q"], c["turn"])
         cur = best.get(k)
         if cur is None:

@@ -16,9 +16,9 @@
    分类法叶 `S9.M5.1`（环节.机制.叶）。join 不上就按 `component → 段` 兜到 L1，并标
    `path_source="component"`。
 3. **只留解释得清的 case**：每一条 problem 都必须能 join 到分类法叶（`S9.M5.1`）；只要有一条
-   落不到叶（只能按 component 兜到 L1），整条 case 剔除，不进任何档位——理由是这样的人在档位里
-   占了配额却解释不清错误模式。剔除条数写在 `manifest.json.quality.unclassified_dropped`。
-   `GOLD` 保留——它是明确定义的"无缺陷"类，不是"未分类"。
+   落不到叶，整条 case 剔除，不进任何档位。剔除条数写在 `manifest.json.quality.join_failed_dropped`。
+   统计口径同样不留兜底桶：没有 NA / unknown / "其他"——字段撑不起口径就直接不做那一维
+   （难度、token 分位、recalled_from 都因此下线）。`GOLD` 保留，它是明确定义的"无缺陷"类。
 
 4. **补问句 + 去重**：归因里约 5% 的 case 没带 `question`（其中 P0/P1 上千条），先去
    `eval_input` 原文里补回来（`meta.question → translation.question → 最后一条 user 消息`）；

@@ -97,24 +97,6 @@ def stable_hash(seed, key):
     return hashlib.md5(("%s\x1f%s" % (seed, key)).encode("utf-8")).hexdigest()
 
 
-def tokens_bucket(n):
-    try:
-        n = int(n or 0)
-    except (TypeError, ValueError):
-        n = 0
-    if n <= 0:
-        return "unknown"
-    if n < 8192:
-        return "<8k"
-    if n < 32768:
-        return "8-32k"
-    if n < 65536:
-        return "32-64k"
-    if n < 131072:
-        return "64-128k"
-    return ">=128k"
-
-
 def round_bucket(n):
     """会话轮次分桶。"""
     try:

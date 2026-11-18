@@ -202,7 +202,7 @@ def main():
         mat = Materializer(os.path.abspath(a.eval_input), build_dir, log)
 
     cases = drop_unclassified(cases, stats)
-    log("  剔除未分类 case %d 条（任一条 problem 落不到叶）" % stats["unclassified_dropped"])
+    log("  剔除 join 失败 case %d 条（任一条 problem 落不到叶）" % stats["join_failed_dropped"])
 
     log("4/6 补问句 + 去重 …")
     if mat:
@@ -315,7 +315,8 @@ def main():
         "q_too_short_dropped": stats["q_too_short"],
         "q_url_only_dropped": stats["q_url_only"],
         "q_short_followup_kept": stats["q_short_followup_kept"],
-        "unclassified_dropped": stats["unclassified_dropped"],
+        "join_failed_dropped": stats["join_failed_dropped"],
+        "meta_incomplete_dropped": stats["meta_incomplete_dropped"],
         "bad_severity": stats["bad_severity"],
     }
     manifest["elapsed_sec"] = round(time.time() - t0, 1)
