@@ -22,7 +22,9 @@ MAX_TOKENS = int(os.environ.get("CLUSTER_MAX_TOKENS", "32768"))
 TIMEOUT = int(os.environ.get("CLUSTER_TIMEOUT", "600"))
 REASONING = os.environ.get("CLUSTER_REASONING", "none")  # 默认快；质量模式设 low（+2.6pp，慢 5-6x）
 # 托管网关（LiteLLM）按 key 限流：429 要退避重试，不是"网关挂了"
-REQUEST_ATTEMPTS = int(os.environ.get("CLUSTER_REQUEST_ATTEMPTS", "5"))
+# 8 而不是 5：eval 高峰时网关会连续 429 十几秒到几分钟，5 轮（约 30s）不够用，
+# 8 轮退避（2/4/8/16/32/60/60/60s ≈ 4min）能扛过一轮高峰，代价只是失败时多等。
+REQUEST_ATTEMPTS = int(os.environ.get("CLUSTER_REQUEST_ATTEMPTS", "8"))
 # 非法 path 重试耗尽后，带着「本环节合法清单」再问一次（不替模型选，只把菜单摆正）
 PATH_REPAIR = os.environ.get("CLUSTER_PATH_REPAIR", "1").strip().lower() not in ("0", "false", "no")
 REPAIR_LOG = os.environ.get("CLUSTER_REPAIR_LOG",
