@@ -279,6 +279,26 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v"
 }
 
+# 单棵树跑失败时，若原因是 cgroup ENOMEM（页缓存把 memory.max 打满），
+# sync 后重试一次：实测第一次失败后缓存会被回收（16.3GB -> 6.1GB），重启即过。
+# 只重试内存类错误，其他失败照旧立刻上报。
+ENOMEM_RETRY=${CLUSTER_ENOMEM_RETRY:-1}
+run_tree_guarded() {  # 参数同 run_tree
+  local t=$1 tlog rc
+  tlog="$ROOT/logs/tree-${t}.log"
+  # 不在这里动 set -e：调用方已经 set +e，函数内改回 -e 会让非零返回直接掀掉调用方
+  ( set -e; run_tree "$@" ) 2>&1 | tee "$tlog"
+  rc=${PIPESTATUS[0]}
+  if (( rc != 0 && ENOMEM_RETRY > 0 )) && grep -qE "Cannot allocate memory|Errno 12" "$tlog"; then
+    echo "  ⟳ ENOMEM（cgroup 页缓存打满）→ sync 后重试一次 ${t}"
+    sync; sleep 10
+    ( set -e; run_tree "$@" ) 2>&1 | tee -a "$tlog"
+    rc=${PIPESTATUS[0]}
+    (( rc == 0 )) && echo "  ✓ 重试成功 ${t}"
+  fi
+  return "$rc"
+}
+
 FAILED_TREES=""
 rep_before=0
 [[ -f "$CLUSTER_REPAIR_LOG" ]] && rep_before=$(wc -l < "$CLUSTER_REPAIR_LOG" | tr -d ' ')
@@ -290,7 +310,7 @@ while IFS= read -r row; do
   # 单棵树失败不连坐：其余树照常跑完并交付，最后统一非零退出（否则快树会被慢树的偶发失败饿死）
   # 注意：子 shell 里显式 set -e，保证树内部任何一步失败立刻中止该树，而不是带着半成品往下走
   set +e
-  ( set -e; run_tree "$t" "$src" "$deliver" "$srcroot" )
+  run_tree_guarded "$t" "$src" "$deliver" "$srcroot"
   local_rc=$?
   set -e
   if (( local_rc != 0 )); then

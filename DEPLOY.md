@@ -745,3 +745,24 @@ attempt 1..N（原逻辑，同一份提示词）
   重问一轮 40/40 收敛到合法叶，`calls=2`，`missing_leaf` 落 40 条 `repaired`。
 
 **验证清单**：`smoke.sh`（含 `REPAIR OK （7/7）`）→ 部署 → 预检 8 项 OK → 联调通过。
+
+## 22. 2026-11-18 单树 ENOMEM 自动重试（4.4.9）
+
+**起因**：15:16 那轮验证跑里 `aime_fast` 在 `make_delta` 阶段 `OSError: [Errno 12] Cannot
+allocate memory` 直接失败——当时 cgroup `memory.current` 已经 16,377/16,384MB（几乎全是
+可回收的页缓存，13.1GB inactive_file；`memory.high=max`、`file_dirty` 只有 4KB）。
+失败后立刻回落到 6.1GB，紧接着重跑同一轮 4 分钟就过了。
+
+**结论**：这不是代码泄漏，是**页缓存把 cgroup 顶满 + 分配瞬间回收跟不上**的偶发失败。
+容器内 `memory.reclaim` 是只读挂载（`Read-only file system`），没有别的回收手段。
+
+**改动**（`bin/run_trees.sh`）：单棵树失败后，如果输出里有 `Cannot allocate memory` / `Errno 12`，
+就 `sync` + 等 10s 再跑一次（默认一次，`CLUSTER_ENOMEM_RETRY=N` 可调，0 关闭）；
+其他原因的失败照旧立即上报，不重试。同时每棵树的输出 tee 到 `logs/tree-<树>.log`，
+方便失败后直接看那一棵的完整日志（守护日志仍然照常滚动）。
+
+**注意**：`run_tree_guarded` 里刻意**不碰 `set -e`**——函数内把 errexit 关掉再打开，
+会让非零返回直接掀掉调用方的 `local_rc=$?`（写测试时踩过）。
+
+**测试**：`tests/` 里用桩 `run_tree` 覆盖 4 种情形（ENOMEM 后成功、非内存错误不重试、
+ENOMEM 仍失败、开关关闭），行为符合预期；随后真跑一轮增量 `EXIT=0`。
