@@ -126,6 +126,20 @@ def main():
         if nid not in idset:
             err("orphan_tags", f"leaf_tags 有孤儿条目 {nid}")
 
+    # 4b. 环节 × 机制矩阵：每格要么有叶，要么在 matrix_na.json 登记不适用理由
+    try:
+        na = load("matrix_na.json")["cells"]
+    except FileNotFoundError:
+        na = {}
+    have = {(n["l1"], n["l2"]) for n in nodes}
+    for s_ in [x for x in inv["l1"] if x != "S0"]:
+        for m_ in [f"M{i}" for i in range(1, 8)]:
+            has, decl = (s_, m_) in have, f"{s_}.{m_}" in na
+            if not has and not decl:
+                err("matrix_hole", f"{s_}.{m_}: 无叶子且未在 matrix_na.json 登记不适用理由")
+            elif has and decl:
+                err("matrix_stale_na", f"{s_}.{m_}: 已有叶子但 matrix_na.json 仍登记为不适用")
+
     # 5. sample size
     if counts:
         thin = [(n["id"], counts.get(n["id"], 0)) for n in nodes if counts.get(n["id"], 0) < 10]

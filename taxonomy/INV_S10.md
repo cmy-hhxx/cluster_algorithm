@@ -7,6 +7,7 @@
 1. **这一环该做的动作，一点都没做？** → `S10.M1.1` 请求为空 / `S10.M1.2` 未生成请求
 2. **动作做了，但对象/指标/时段/范围不是用户要的？** → `S10.M2.1` 请求照抄原句 / `S10.M2.2` 请求标的写错 / `S10.M2.3` 请求期间写错 / `S10.M2.4` 请求字段取近似 / `S10.M2.5` 请求过滤条件写错 / `S10.M2.6` 请求排序分页写错 / `S10.M2.7` 工具选错 / `S10.M2.8` 请求结构不合契约 / `S10.M2.9` 请求重复
 3. **调用报错/超时/零行/空返回/被截断？** → `S10.M3.1` 生成物不可执行 / `S10.M3.2` 请求被校验拒绝 / `S10.M3.3` 生成物被截断
+4. **有返回，但内容撑不起任务（不相关/样板/过期/缺字段）？** → `S10.M4.1` 请求参数对不上工具
 5. **数据对，但换算/聚合/口径/比较错，或自相矛盾？** → `S10.M5.1` 生成代码计算逻辑错
 6. **结论没证据，或与已有证据相反？** → `S10.M6.1` 生成物写死结论
 7. **形式与完整性不达标（缺项/格式/语言/答非所问）？** → `S10.M7.1` 生成物缺项
@@ -31,6 +32,7 @@
 | `S10.M3.1` | 生成物不可执行 | M3 | – | – | 失败 | `–` |
 | `S10.M3.2` | 请求被校验拒绝 | M3 | – | – | 失败 | `–` |
 | `S10.M3.3` | 生成物被截断 | M3 | – | – | 缺失 | `–` |
+| `S10.M4.1` | 请求参数对不上工具 | M4 | – | – | 失败 | `–` |
 | `S10.M5.1` | 生成代码计算逻辑错 | M5 | – | – | 单位 | `–` |
 | `S10.M6.1` | 生成物写死结论 | M6 | – | – | 编造 | `–` |
 | `S10.M7.1` | 生成物缺项 | M7 | – | – | 缺失 | `–` |
@@ -162,6 +164,15 @@
 - **排除**：计划层被截断 → `S1.M3.1`；执行输出被截断 → `S3.M3.8`。
 - **最相近的类别**：`–` — 区分点：–
 - **标签**：缺失 ｜ **组件**：CodeInterpreter、aime_memory_read、aime_memory_write、client_action、customer_services、get_user_context、planner-finquery、planner-search、query_user_positions、shell、stock_ner_parse、understand_image、view_skill/read_file、watchlist_manager
+
+### `S10.M4.1` 请求参数对不上工具
+
+- **定义**：生成的请求语法成立，但参数名、字段名或数据键对工具/数据不成立（工具不认这个参数、数据里没有这一列），执行侧报 unrecognized arguments 或必然空结果。（本叶仅收请求生成环节产生的缺陷）
+- **可观测信号**：–
+- **纳入**：calc.py 传 --inspect（实际只支持 --calculation/--code-file）；grep 用 High Price 而字段叫 Intraday High/Low，stdout 为空；请求带命令不支持的 --workspace-dir。
+- **排除**：参数类型或必填项不合契约 → `S10.M2.8`；生成物语法错跑不起来 → `S10.M3.1`；被服务端校验直接拒绝 → `S10.M3.2`。
+- **最相近的类别**：`–` — 区分点：–
+- **标签**：失败 ｜ **组件**：CodeInterpreter、finquery、shell、planner-finquery、planner-search、customer_services、view_skill/read_file、understand_image、aime_memory_read、aime_memory_write、get_user_context、query_user_positions、stock_ner_parse、client_action、watchlist_manager
 
 ### `S10.M5.1` 生成代码计算逻辑错
 

@@ -2606,6 +2606,98 @@
     "中间推理处理"
    ],
    "plain": "推理过程中调的工具或脚本挂了，中间结果拿不到。"
+  },
+  {
+   "id": "S1.M4.1",
+   "l1": "S1",
+   "l2": "M4",
+   "name": "查询项不可执行",
+   "definition": "规划下发的查询项在取数侧不成立：字段不在该市场/表结构的支持范围、引用的列名不存在、条件与指标互相排斥，回执零行或 schema 报错。（本叶仅收S1段产生的缺陷）",
+   "include": "请求 USTOCK/HTML 没有的 Market Cap、Float 等字段；SQL 引用不存在的列「股票代码」；区间上下界写成互斥条件。",
+   "exclude": "查询对象/维度/时段写错 → `S1.M2.2`；失败后不改条件原样重发 → `S1.M2.11`；计划为空或被截断 → `S1.M3.1`；执行侧 SQL 报错 → `S3.M3.1`。",
+   "components": [
+    "planner-finquery"
+   ],
+   "plain": "规划出来的查询项，取数服务根本执行不了。"
+  },
+  {
+   "id": "S1.M5.1",
+   "l1": "S1",
+   "l2": "M5",
+   "name": "取数规划自算数值错",
+   "definition": "规划阶段自行换算或估算的数值写错：市值/价格区间量级、币种折算、阈值单位，使查询条件与用户意图差出数量级或币种。（本叶仅收S1段产生的缺陷）",
+   "include": "「10亿到1000亿」写成 1e9~1e12；日元 20 万门槛未折算就直接当美元条件；万/亿单位混用写进条件。",
+   "exclude": "指标或维度选错 → `S1.M2.5`；时间窗锚错 → `S1.M2.4`；取回后算错 → `S9.M5.1`。",
+   "components": [
+    "planner-finquery"
+   ],
+   "plain": "规划里自己换算的价格/市值/单位算错了量级。"
+  },
+  {
+   "id": "S2.M5.1",
+   "l1": "S2",
+   "l2": "M5",
+   "name": "检索规划自算数值错",
+   "definition": "规划在检索阶段自行推算的数值写错：加权/平均成本、止损与目标价的对应关系、年化或区间收益、时区换算，写进检索词或后续参数，与实际不符。（本叶仅收S2段产生的缺陷）",
+   "include": "37股@90 加 3股@88.5 算成 89.81（应 89.89）；$62.5 止损称「约 $200 盈利」实际约 $656；5pm PKT 换算成别的时区。",
+   "exclude": "检索词对象/维度/时效写错 → `S2.M2.2`；回执内容错 → `S5.M4.1`。",
+   "components": [
+    "planner-search"
+   ],
+   "plain": "检索规划里自算的成本/收益/时区算错了。"
+  },
+  {
+   "id": "S5.M1.1",
+   "l1": "S5",
+   "l2": "M1",
+   "name": "排了检索未执行",
+   "definition": "计划里排了网页检索，执行侧对 web_search/web_fetch 零调用，终稿仍按上下文或常识作答，没有网页依据。（本叶仅收S5段产生的缺陷）",
+   "include": "计划三条检索，实际 web_search 调用次数为 0；只在思考里「假定已检索」后直接写结论。",
+   "exclude": "规划层面就没排检索 → `S2.M1.1`；调用超时/空回 → `S5.M3.1`。",
+   "components": [
+    "web_search"
+   ],
+   "plain": "排了检索却一次都没真去查。"
+  },
+  {
+   "id": "S8.M6.1",
+   "l1": "S8",
+   "l2": "M6",
+   "name": "识图内容凭空补写",
+   "definition": "图像或技能材料里没有的信息被当成读到的内容写出来：空白处补典型数值、把年份/单位改成合理值、虚构图中不存在的列或行。（本叶仅收S8段产生的缺陷）",
+   "include": "截图只标「10/30 08:56:19」，回执总结成「2024年10月30日」；空白区域补写具体价格；图中无该列却给出数值。",
+   "exclude": "图上确实有但读错 → `S8.M5.2`；图像数值加总算错 → `S8.M5.1`；技能加载失败 → `S8.M3.3`。",
+   "components": [
+    "understand_image"
+   ],
+   "plain": "图上没有的东西被当成读到的写出来了。"
+  },
+  {
+   "id": "S10.M4.1",
+   "l1": "S10",
+   "l2": "M4",
+   "name": "请求参数对不上工具",
+   "definition": "生成的请求语法成立，但参数名、字段名或数据键对工具/数据不成立（工具不认这个参数、数据里没有这一列），执行侧报 unrecognized arguments 或必然空结果。（本叶仅收请求生成环节产生的缺陷）",
+   "include": "calc.py 传 --inspect（实际只支持 --calculation/--code-file）；grep 用 High Price 而字段叫 Intraday High/Low，stdout 为空；请求带命令不支持的 --workspace-dir。",
+   "exclude": "参数类型或必填项不合契约 → `S10.M2.8`；生成物语法错跑不起来 → `S10.M3.1`；被服务端校验直接拒绝 → `S10.M3.2`。",
+   "components": [
+    "CodeInterpreter",
+    "finquery",
+    "shell",
+    "planner-finquery",
+    "planner-search",
+    "customer_services",
+    "view_skill/read_file",
+    "understand_image",
+    "aime_memory_read",
+    "aime_memory_write",
+    "get_user_context",
+    "query_user_positions",
+    "stock_ner_parse",
+    "client_action",
+    "watchlist_manager"
+   ],
+   "plain": "请求拼对了，但参数名/字段名工具不认，必然拿空。"
   }
  ]
 }
