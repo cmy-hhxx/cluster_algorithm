@@ -1,279 +1,94 @@
-# 归因聚类方法论（attribution clustering）
+# cluster_algorithm
 
-对一批「流失用户评测归因」问题条目做聚类，产出一棵可下钻、可回溯、可复算的树。
-**输入只有 attribution.jsonl；输出是一组固定文件。**
+把「流失 / 失败归因」条目聚成可下钻、可回溯、可复算的树。
+输入：`*attribution*.jsonl`（问题）+ `eval_input`（身份 / 问句）；
+输出：每棵树 11 个交付文件。
 
-聚类按**渠道**拆到两台服务器上跑，位置以后固定不变：**AIME 的聚类在弗吉尼亚**（SSH 别名 `aime_rsi_data`），**问财的聚类在乌兰察布**（`eval_data`）。一台只跑、只写自己那个渠道，不交叉、不合并。
+- AIME 的聚类只在**弗吉尼亚**（`aime_rsi_data`）跑，两棵树：`aime_fast` / `aime_expert`。
+- 问财的聚类只在**乌兰察布**（`eval_data`）跑，4 + 6 棵树。
+- 两个渠道不交叉、不合并；一台机器只跑自己的渠道。
 
-两台服务器的连接信息（主机、SSH 端口、容器名、端口映射、登录方式与密钥路径）统一记在仓库根的 **`.servers.conf`**：本机文件，已 gitignore、不随代码下发；文档里只写别名和差异项。
+## 当前状态（2026-11-19 12:30 CST）
 
-| 文档 | 讲什么 |
+| 树 | 条目 | 会话 | 叶子 | 最近一轮 | 校验 |
+|---|---:|---:|---:|---|---|
+| `aime_fast` | 333,811 | 59,347 | 173 | 11:50 | `err=0 / mismatch=0` |
+| `aime_expert` | 95,124 | 17,260 | 171 | 11:44 | `err=0 / mismatch=0` |
+
+- 版本 **4.4.10**；分类法 **181 叶**（树里实际用到 173 / 171）。
+- 守护进程每 **2 小时**一轮增量；最近状态 `rc=0`，下一轮约 **13:50**。
+- 接手先看 **[docs/handoff.md](docs/handoff.md)**：连服务器、文件与代码位置、风险、自检。
+
+## 文档
+
+| 文档 | 什么时候看 |
 |---|---|
-| 本文 | 方法论：三轴分类法、计数口径、质量协议 |
-| [DEPLOY.md](DEPLOY.md) | 双机部署与运行：拓扑、两台机差异、代码怎么上去、守护进程、踩坑 |
-| [RUNBOOK.md](RUNBOOK.md) | 收到「帮我聚类」后按什么步骤执行 |
-| [TUTORIAL.md](TUTORIAL.md) | 使用教程：最短路径、输出怎么读、怎么召回证据 |
-| [OPTIMIZATION.md](OPTIMIZATION.md) | 三轮以上优化的实验、取舍与最终指标 |
+| [docs/handoff.md](docs/handoff.md) | **交接第一份**：两棵树现状、SSH、文件/代码位置、三分钟自检 |
+| [docs/runbook.md](docs/runbook.md) | 日常：跑一轮、监控、交付检查、停/起守护 |
+| [docs/deploy.md](docs/deploy.md) | 从零部署、换容器、环境初始化、代码怎么上去 |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | 出问题：网关 401/429、ENOMEM、缺叶、SSH、verify |
+| [docs/methodology.md](docs/methodology.md) | 分类法：12 环节、7 机制、计数口径、质量协议 |
+| [docs/tutorial.md](docs/tutorial.md) | 第一次用：输入格式、跑法、读结果、召回证据 |
+| [docs/optimization.md](docs/optimization.md) | 三轮以上优化实验与最终指标 |
+| [docs/changelog.md](docs/changelog.md) | 版本线、网关/容器变更、事故与修复 |
 
-## 1. 聚类单元
+## 30 秒上手
 
-- 单元 = **原子归因条目**：归因模型指出的一个具体失效动作，自带 `component`（链路环节）、`label`、`definition`、`reason`、`evidence`。
-- 一条**只归属一个叶子**。不做多标签，否则计数会重复、排名会失真。
-- 若一条同时命中多个问题，按 **M1→M7 最早失效点** 归入靠前的那个（见 §3）。
+看现状（服务器）：
 
-## 2. 三轴设计
-
+```bash
+ssh aime_rsi_data
+cd /mnt/aime_eval_ssd/code/2_cluster_algorithm
+source .deploy/env.sh
+tmux ls
+cat logs/incr_status_aime.json
+tail -n 5 runs/_runs.jsonl
 ```
-L1 环节  —— 失败发生在链路哪一段（7 段，由 component 唯一确定，不靠语义猜）
-L2 机制  —— 该环节的动作错在哪一层（7 类，跨环节统一口径）
-L3 模式  —— 可派工的动作级失效模式（互斥、穷尽）
-L4 细分  —— 仅对达标的大叶子下钻（§5）
+
+手动跑一轮：
+
+```bash
+bin/preflight.sh
+bin/run_trees.sh --incremental --no-full-fallback
 ```
 
-**12 段划分**（v4.1 起；v4.0 之前是 9 段）：
+改完代码（本机，不是服务器）：
 
-| 段 | 名称 | 判定依据 | 条目 | 会话 |
-|---|---|---|---|---|
-| S1 | 取数规划 | `role=planning` 且属取数规划子模型 | 209 | 153 |
-| S2 | 检索规划 | `role=planning` 且属检索规划/实体识别 | 45 | 41 |
-| S3 | 结构化取数 | `role=tool` 的 finquery 与取数技能脚本 | 580 | 406 |
-| S4 | 本地计算 | `role=script` 的沙箱脚本与持仓查询 | 99 | 76 |
-| S5 | 网页检索 | `role=tool` 的 web_search / web_fetch | 195 | 170 |
-| S6 | 客服知识库 | customer_services / CustomerServiceFAQ | 34 | 31 |
-| S7 | 记忆 | aime_memory_read/write、get_user_context、SaveUserProfile | 34 | 32 |
-| S8 | 能力装载 | view_skill/read_file、understand_image | 10 | 8 |
-| S9 | 答案合成 | `role=delivery`（答案合成的取值/计算/推断/引用/指令遵循） | 1,384 | 800 |
-| S10 | 请求生成 | `role=request_generation` 的非图表类请求 | 826 | 435 |
-| S11 | 图表与可视化 | display / workflow 的 spec 生成与渲染 | 96 | 71 |
-| S12 | 任务编排 | `family=model` 的泛规划（做几步、什么顺序、要不要补前置） | 138 | 120 |
-
-> 条目/会话是 2026-11-01 批次（6 棵树共 3,650 条 / 1,060 会话）的实测，只作量级参考；口径以 `taxonomy/stages.json` 与 `components.json` 的 `role`/`stage` 字段为准。
-
-**v4 为什么扩到 12 段**：2026-11 起归因输出自带 `component_role`（planning / request_generation / tool / script / delivery），第一轴从此可以按「职责阶段」切，而不只是按「哪个工具」切。9 段把 826 条「请求生成」摊在 7 个段里，谁都看不出总量；S10 单独成段后，它是第二大段（22.6%），且在 AIME Expert 里 60% 的会话都踩到。
-
-拆分依据仍是**责任边界 + 故障域**：取数规划与检索规划归属两个团队；结构化取数与本地计算是两种故障域（SQL/服务 vs 沙箱/脚本）；客服知识库（外部知识）、记忆（内部上下文）、能力装载（技能与图像）是三套资源；请求生成（把计划落成调用）与工具执行（真正调用并返回）是两种失效；图表与可视化、任务编排各自有独立的修法。
-
-**两条互斥保证**：
-
-1. `component + role → 段` 是精确映射（`components.json` 里每个 raw 写法都带 `stage`），一条问题只可能落一个段；
-2. 同一现象若两段都有，叶子按段一分为二并**各自命名**，不允许同名，也不允许用「A 或 B」命名一个叶子（v2.3 已把 27 个联合命名的叶子全部拆开或改名，v4.1 又清掉 5 个新增的联合名）。
-
-**为什么第一轴是 component 而不是“用户现象”**：component 给出责任边界，能直接派工；缺点是同一现象（如“搜索”）会被拆到多个环节。这个缺点用**横切标签**（§6）补偿——而不是把主树改成现象轴，那会让“谁来修”重新变成猜谜。
-
-**为什么 L2 只有 7 类**：机制层要能横向比较（“哪一层最普遍”），类别一多就退化成 L3 的同义词。
-
-| 代码 | 机制 | 判据（该环节的“动作”处于什么状态） |
-|---|---|---|
-| M1 | 空转未执行 | 没有产出任务所需的最小动作 |
-| M2 | 目标错配 | 动作发生了，对象/指标/时段/范围/语义不对 |
-| M3 | 执行失败 | 动作在执行层面失败（报错/超时/零行/空返回/截断） |
-| M4 | 结果不可用 | 有返回，但内容撑不起任务（不相关/样板/过期/缺字段） |
-| M5 | 加工计算错误 | 数据对，但换算/聚合/口径/比较错 |
-| M6 | 无依据断言 | 结论缺乏证据，或与已有证据矛盾 |
-| M7 | 交付不符 | 形式与完整性不达标（缺项/格式/语言/答非所问） |
-
-## 3. 判定优先级（消除并行归因）
-
-按 M1 → M7 自上而下匹配，命中即停，取**最早失效点**。典型边界：
-
-| 边界 | 规则 |
-|---|---|
-| M1 vs M3 | 没规划/没调用 → M1；调用了但报错零行 → M3 |
-| M3 vs M4 | 报错/超时/零行/空 body → M3；有内容但不相关/过期/缺字段 → M4 |
-| M2 vs M4 | 请求本身打偏 → M2；请求对、返回错 → M4 |
-| M4 vs M5 | 返回的是错东西 → M4；东西对但算错/标错 → M5 |
-| M5 vs M6 | 有数据但算错 → M5；没来源却断言 → M6 |
-| M6 vs M7 | 说了不该说的 → M6；该说的没说 → M7 |
-
-## 4. L3 准入（三条缺一不可）
-
-1. **互斥**：能写出 `include` 与 `exclude`，排他项必须指向具体兄弟叶，而不是“其他”。
-2. **可派工**：开发看到名字知道去改哪。`"结果不可用"` 不合格，`"请求字段被静默丢弃"` 合格。
-3. **可复现**：同一 `definition` 下，两个人独立看同一条条目会落同一个叶子（靠 §7 的重标验）。
-
-禁止兜底桶（"其他/杂项"）。长尾按具体现象命名，样本量小就小，不许合并。
-
-## 5. L4 准入（三条同时满足）
-
-1. 叶子条目数 ≥ **300**；
-2. 内部能写出互斥的 include/exclude（不是靠语感切）；
-3. 拆出的子类对应**不同的修复动作**（否则只是好看）。
-
-不满足就停在 L3。为了层数整齐去拆小叶子，会制造边界噪声，让准确率下降。
-
-## 6. 计数口径（重要）
-
-- **主口径 = 会话数**：同一会话在同一叶子只算 1。一个用户踩一次算一次，不被“问题多的会话”放大。
-- **附列 = 条目数**：保留原始密度，用于看模型的输出习惯。
-- **case = trace_id**（2026-11-11 起）：`eval_input` 一行一 trace，一个 case 就是一次提问实例；
-  聚类条目、badcase、goldencase 都以它为身份，不再用文件名/行号。
-- 三档都要给，但**排序与决策看会话数**。
-
-### 6.1 badcase / goldencase（2026-11-11 起）
-
-每轮聚完在 `CASE_INDEX_ROOT` 下产出两份清单（一行一个 case，按 `request_time` 排序）：
-
-| 文件 | 入选口径 | 用途 |
-|---|---|---|
-| `badcase_<渠道>.jsonl` | 该 case 有任意 problem 的 `severity ∈ {P0, P1}` | 优先复现/修复 |
-| `goldencase_<渠道>.jsonl` | 该 case 的 `problem` 为空 | 回归对照，防止修坏 |
-
-- P2–P4 的 case **不进**这两份，只留在聚类树里看分布。
-- 字段只有可追溯信息：`bad_case_id / channel / model / question / session_id / trace_id / batch_id /
-  request_time / severity / severity_counts / problem_count / first_seen / last_seen`——
-  没有行号、没有绝对路径；拿 `trace_id` 回 `eval_input` 就能还原完整 messages。
-- 身份索引 `cases_<渠道>.jsonl` 每轮先压一次（`bin/build_cases_index.py`，trace_id → question/session），
-  聚类 `ingest` 与清单生成都读它。
-
-## 7. 横切标签
-
-一条可多标签，不破坏树的互斥性。当前词表（`taxonomy/tags.json`）：
-
-`时效 / 实体 / 口径 / 单位 / 多标的 / 语言 / 呈现 / 编造 / 缺失 / 失败`
-
-标签由 `taxonomy/leaf_tags.json`（叶子→标签）决定，改标签只需改这一张表，不用重跑归类。
-它回答“时效类问题一共多少、分布在哪几段”——这是单靠树答不上的。
-
-## 8. 质量协议
-
-| 检查 | 做法 | 通过标准 |
-|---|---|---|
-| 归属唯一 | 每条恰好 1 个 path，无越界 | 100% |
-| 计数自洽 | 子节点之和 = 父节点 | 100% |
-| 定位回放 | 抽样的 `src_file:src_line → turns[i].problem[j]` 与原条目比对 | label 0 不一致 |
-| 边界标记 | 跨组件软约束/兄弟模糊标 `edge` | 记录比例，优先复核 |
-| 双盲重标 | 分层抽 600 条（每叶≥3），两方独立标，算 Krippendorff α | α ≥ 0.75；α < 0.6 的叶子退回重定义 |
-| 外部交叉 | 用 `session_problem`（跨环节综合征）反查环节链 | 覆盖率 100% |
-| 分类法自检 | `python3 bin/taxonomy_lint.py`（旧口径引用/悬空指针/同名/兜底桶） | errors=0 |
-
-当前批次实测（2026-10-30，576 条双盲样本中两人一致的 529 条）：
-
-| 指标 | 结果 |
-|---|---|
-| 两人彼此一致率 | **91.8%**（Krippendorff α=0.918） |
-| 质量模式 vs 双盲共识（叶子级） | **91.3%** |
-| 快速模式 vs 双盲共识（叶子级） | **88.1%** |
-| 机制层（`S*.M*`）一致率 | **97.0%**（质量）/ 96.2%（快速） |
-| 分类法自检 | 修复前 111 errors → 修复后 **0 errors** |
-| 定位回放 / 结构校验 | 0 不一致 / 0 errors |
-
-结论：模型与两位独立标注员的一致率（91.3%）已经接近两位标注员彼此的一致率（91.8%），
-叶子级准确率基本到顶；再往上提升需要更细的分类法或人工仲裁，而不是换提示词。
-
-## 9. 新工具、新技能怎么进来
-
-分类法不接受"其他/未知"桶。流程是**先登记、再跑**：
-
-1. `taxonomy/components.json` 里每个工具一行：`原始写法 → {tool, label}`；
-2. `taxonomy/stages.json` 决定它归哪一段（同名工具合并，如 `understand-image-0` 与 `understand_image`）；
-3. `ingest` 结束时校验：出现表里没有的 component，直接中断并写出 `unregistered.json`，列出具体是哪几个、各多少条；
-4. 人工确认归属后补一行，重跑；若它确实属于新责任域，就新增一个段并升版本号。
-
-**为什么不做自动兜底**：兜底桶会把"新工具坏了"变成"某一段里的杂项"，既看不出是哪个工具，也没人认领。宁可中断，也不猜。
-
-## 10. 演进规则（换数据时）
-
-1. 新数据先按冻结的 91 叶归类，**不允许现场发明新叶子**。
-2. 归不进去的进 `UNMAPPED`。
-3. `UNMAPPED` 占比 **> 5%** 或出现 ≥30 条同质新现象 → 触发一轮归纳（`prompts/05_drift_induct.md`），产出候补叶子，人工确认后写入 `inventory.json` 并升版本号。
-4. 版本号在 `VERSION.json`；树里 `meta.pipeline_version` 会带上它，便于跨批次比较。
-
-## 11. 已知边界
-
-- 只适用于**单轮或可拆到 turn 级**的归因数据；多轮归因需先按 turn 拆开。
-- `T 工具服务与上下文层` 样本少（305 条），统计稳定性弱于其他层，别单看它的排名。
-- 树只描述**失效**，不描述“好答案长什么样”，因此不能直接当质量评分用。
-- 归类依赖模型判断，`edge` 与 α 是它的诚实度刻度，不是装饰。
-
-## 12. 仓库结构
-
+```bash
+./deploy_local.sh aime
 ```
+
+连接信息在仓库根 `.servers.conf`（本机文件，已 gitignore）；
+网关 key 在 `.deploy/local.conf`。两者都不入库。
+
+## 仓库结构
+
+```text
 cluster_algorithm/
-├── README.md              方法论（本文）
-├── RUNBOOK.md             执行手册：收到指令后按什么步骤跑
-├── DEPLOY.md              双机部署：乌兰=问财 / 弗吉尼亚=AIME
-├── run.sh                 init / finish 两个确定性入口
-├── deploy_local.sh        本机 → 服务器的代码传输与环境渲染（不用 git 下发）
-├── VERSION.json           流水线与分类法版本
-├── bin/
-│   ├── cluster.py         ingest / chunk / aggregate / verify / report / chart / syndrome / recall
-│   ├── classify.py        批量归类（直调网关；--effort none/low；--consensus N）
-│   ├── discover_trees.py  扫目录发现要聚类的树（渠道 × 输入目录），AIME 顺带做日常+流失 staging
-│   ├── run_trees.sh       按渠道跑全量/增量 → 交付 → 重建索引
-│   ├── build_cases_index.py  eval_input → cases_<渠道>.jsonl（trace_id 身份索引）
-│   ├── build_case_lists.py   生成 badcase_<渠道>.jsonl / goldencase_<渠道>.jsonl
-│   ├── make_src_map.py      （4.4 起停用）旧基线的绝对路径回放映射
-│   ├── build_case_index.py  （4.4 起停用）旧 bad_case 索引
-│   ├── channel_daemon.sh  单渠道增量常驻循环（tmux）
-│   ├── watch_daemon.sh    看门狗：主循环被 OOM 杀掉时拉起
-│   ├── preflight.sh       开跑前预检（OK / BLOCKED / FAIL）
-│   ├── export_inventory.py  生成 taxonomy/INV_<L1>.md（给归类员看的判定卡）
-│   ├── taxonomy_lint.py   分类法自检（CI/init 门禁）
-│   ├── taxonomy_fix.py    一次性修复旧口径引用与错误命名
-│   ├── make_manifest.py   生成交付清单与校验和
-│   └── krippendorff.py    双盲重标一致性（nominal α）
-├── taxonomy/
-│   ├── inventory.json     173 个叶子 + 12 环节 + 7 机制的冻结版
-│   ├── stages.json        12 段定义
-│   ├── INV_<L1>.md        每个环节的归类决策表（S1–S12）
-│   ├── comp2l1.json       component → L1（跨段工具写成 "S4+S10"）
-│   ├── components.json    raw component → {tool, label, role, stage}（stage 决定分片）
-│   ├── tags.json          横切标签词表
-│   ├── leaf_tags.json     叶子 → 标签
-│   └── l4_nodes.json      L4 节点（为空 = 当前停在 L3）
-├── prompts/               提示词模板（归类 / 归类-子代理旧版 / L4 / 双盲重标 / 漂移归纳）
-├── experiments/           本轮优化的实验脚本、缓存与结果（可复现）
-├── OPTIMIZATION.md        三轮以上优化的目标、实验、取舍与最终指标
-└── examples/              参考产物（当前批次）
+├── README.md                 唯一入口（根目录只有这一个 md）
+├── docs/                     项目文档（每份 ≤300 行）
+├── bin/                      聚类 / 归类 / 预检 / 守护 / 索引脚本
+├── taxonomy/                 分类法：inventory / stages / INV_S*.md / MATRIX
+├── prompts/                  归类与审计提示词
+├── deploy_local.sh           本机 → 服务器：rsync + 渲染 env.sh + 预检
+├── run.sh / run_cluster.sh   init / classify / finish 入口
+├── VERSION.json              流水线与分类法版本
+├── examples/                 参考产物
+├── experiments/              优化实验与结果
+├── audit/                    双盲审计
+└── runs/                     本机旧实验残留；权威基线在服务器
 ```
 
-## 13. 怎么触发
+`taxonomy/INV_*.md`、`taxonomy/MATRIX.md`、`prompts/*.md`、`examples/*.md` 是
+**生成物 / 规格 / 样例**，不是项目文档，保持在原位。
 
-**按渠道，在哪台机器，一条命令。**
+## 约定
 
-| 渠道 | 机器 | 命令 |
-|---|---|---|
-| 问财 | 乌兰 `eval_data` | `bin/run_trees.sh`（渠道来自 `.deploy/env.sh` 的 `CLUSTER_CHANNEL=wencai`） |
-| AIME | 弗吉尼亚 `aime_rsi_data` | `bin/run_trees.sh`（`CLUSTER_CHANNEL=aime`） |
-
-> 弗吉尼亚的数据根 2026-11-09 起在 SSD：`AIME_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output`、索引根 `/mnt/aime_eval_ssd`，代码目录 `/mnt/aime_eval_ssd/code/2_cluster_algorithm`；旧根 `/mnt/fin_bench/aime_rsi_data` 的 `1_aime` 与旧仓副本已删除（其余暂留，见 DEPLOY.md §12）。交付物里的 `src_file`/`file` 存相对路径（`daily/xxx.jsonl`），换机器只改数据根，详见 [DEPLOY.md](DEPLOY.md) §0.1 / §12。
-
-树不用手点：`bin/discover_trees.py` 扫 `*_ROOT` 下的 `*attribution*.jsonl` 自动发现，新增 model 自动进树；`--only <树名>` 只跑指定树。跑之前先 `bin/preflight.sh`（`OK`/`BLOCKED`/`FAIL` 三种结论，BLOCKED 表示等外部条件、不许开跑）。完整流程见 [DEPLOY.md](DEPLOY.md) §3。
-
-归类由 `bin/classify.py` 直调网关执行（每台机器配自己的网关）：
-
-| 跑在哪 | 归类怎么执行 | 速度 |
-|---|---|---|
-| **乌兰（问财，正式）** | `run.sh classify` → `bin/classify.py` 直调两个内网网关 | 12 并发（容器 8 核 / 16 GiB） |
-| **弗吉尼亚（AIME）** | 同上（网关 `http://10.244.192.108:8000/v1`，2026-11-10 切换） | 8 并发（容器 6 核 / 64 GiB） |
-| 本地（2026-11 联调） | DSH 子代理逐片判，按 `prompts/01_assign.md` + `taxonomy/INV_S<x>.md` | 8–12 并发，2,640 条约 25 分钟 |
-
-增量不会全量重跑：新条目先 `ingest → chunk → classify` 到 `run_delta`，再 `merge_runs` 并入既有 run（去重键 `session_id+trace_id+json_path`），最后 `finish`。
-
-不需要你决定任何口径；口径就是这个仓库。速度/精度二选一按下表：
-
-| 模式 | 命令 | 叶子准确率 | 速度（网关直调，实测） |
-|---|---|---|---|
-| 快速（默认） | `CLUSTER_REASONING=none ./run_cluster.sh ...` | 88.1% | **~4,700 条/分钟**（6,243 条 / 79s，24–32 并发） |
-| 质量 | `CLUSTER_REASONING=low ./run_cluster.sh ...` | **91.3%** | ~300 条/分钟（建议 12–16 并发） |
-
-快速模式比旧默认（244 条/分钟、90.7%）快 **约 19 倍**，叶子准确率低 2.6pp；
-与“两位标注员彼此 91.8%”相比，88.1% 仍在同一量级。对外交付/排名建议用质量模式，
-日常扫描/增量用快速模式。
-
-## 14. 提示词为什么长这样
-
-归类质量的上限由提示词决定，而不是模型。当前 `prompts/01_assign.md` 只保留四块：
-
-| 结构 | 作用 |
-|---|---|
-| **输入契约** | 每个字段是什么意思、哪个是主证据、哪些只作线索 |
-| **判定顺序** | 先看动作停在 M1–M7 哪一步，再在同一机制内选类别；禁止从类别名反推 |
-| **边界裁决表** | 把“两种都说得通”的场合逐条钉死，说明判什么、不判什么 |
-| **输出契约** | 只输出等量 JSONL；`path` 必须来自类别清单；`uncertain` 只标边界 |
-
-三条设计取舍：
-
-- **自包含**：不再引用 `{{ROOT}}`/`{{RUN}}`/自检脚本/交付话术。API 调用方拿到的是一段可直接执行的规格，不是一份“给子代理看的作业说明”。
-- **无旧口径**：删掉了 `P/Q/S/A` 旧阶段样例和 103 处旧 id 引用；类别清单由 `inventory.json` 生成，引用只指向现存类别。
-- **短**：7.6KB → 4.1KB。实测在 529 条双盲样本上，叶子准确率没有下降（质量模式 90.7% → 91.3%，在噪声范围内），说明长提示词里的历史信息大多是歧义源，不是有效信号。
+- 根目录只放 `README.md`；项目文档全部在 `docs/`，单份不超过 **300 行**。
+- 代码/脚本里若出现旧文档名 `DEPLOY.md` / `RUNBOOK.md` / `TUTORIAL.md`，对应
+  `docs/deploy.md` / `runbook.md` / `tutorial.md`（历史引用）。
+- 一台机器只跑一个渠道；不共享 `runs/`、不跨机器搬基线。
+- 分类法不接受「其他 / 未知」；未登记组件直接中断。
+- 归类不兜底：非法 path 该片失败、整棵树当轮不交付，留 `unresolved_*.json` 供补叶。
+- 交付必须 `verify` 的 `errors=0` 且 `locator_mismatch=0`。
+- 服务器没有 `.git`，版本以 `.deploy/DEPLOYED.json` 的 `code_sha256` 为准。
