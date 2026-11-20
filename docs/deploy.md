@@ -284,3 +284,8 @@ python3 bin/build_case_lists.py --channel aime --attr-root "$AIME_ROOT" --out "$
 
 排查：日志里看 `case 身份索引 Xh 前刷新过` / `刷新 case 身份索引 ... 索引刷新耗时 Ns`；
 `build_case_lists.py` 结束会打印 `traces_missing_case=N`，稳态应接近 0。
+
+内存闸门的坑（4.4.14）：`mem_avail_mb()` 必须用 `memory.stat` 的 `anon`，不能用
+`memory.max - memory.current` —— 后者把页缓存算成占用，容器跑一天后 current 基本顶满 40 GiB，
+可用内存恒显示几十 MB，索引刷新会每轮被跳过。实测同一时刻 current/anon = 32278/21019MB，
+旧算法 34MB、真实可用 19.9GB。

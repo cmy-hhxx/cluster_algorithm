@@ -128,11 +128,17 @@ CASES_TTL_H=${CLUSTER_CASES_TTL_H:-1}
 # 容器内存紧的时候（弗吉尼亚 16 GiB，eval 服务常驻 8 GB+）重建索引会 ENOMEM：
 # 可用内存低于阈值直接跳过，本轮退回"归因自带的 question/session"，不影响条目与判定。
 mem_avail_mb() {
-  local mx cur
+  # 只能看 anon：file 是页缓存，cgroup 里可回收，算进来会把可用内存永远压到几十 MB，
+  # 导致索引刷新每轮都被跳过（2026-11-20 23:08 实测 current/anon = 32278/21019MB，
+  # 旧算法报 34MB 而真实可用约 19.9GB）。
+  local mx cur anon
   mx=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)
-  cur=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0)
-  if [[ "$mx" == "max" || -z "$mx" ]]; then echo 999999
-  else echo $(( (mx - cur) / 1048576 )); fi
+  if [[ "$mx" == "max" || -z "$mx" ]]; then echo 999999; return; fi
+  anon=$(awk '/^anon /{print $2}' /sys/fs/cgroup/memory.stat 2>/dev/null)
+  if [[ -z "$anon" ]]; then
+    cur=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0); anon=$cur
+  fi
+  echo $(( (mx - anon) / 1048576 ))
 }
 need_cases=0
 if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
