@@ -308,7 +308,8 @@ def main():
             st = write_stats(sdir, tier, plan, written, base, tax, params)
             n = len(written)
             m_info["tiers"][tier] = {"requested": plan["requested"], "actual": n,
-                                     "shortfall": plan["shortfall"]}
+                                     # shortfall 是"最终没写出去"的差额（池子不足 + 原文取不到）
+                                     "shortfall": plan["requested"] - n}
             log("  tier_%d：requested=%d actual=%d（%s）"
                 % (tier, plan["requested"], n,
                    ",".join("%s:%d" % kv for kv in st["severity_actual"].items())))

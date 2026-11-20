@@ -164,104 +164,42 @@ def write_stats(stats_dir, tier, plan, bench, pool, tax, params):
     return st
 
 
-README_TMPL = """# AIME 动态 bench（数据说明）
-
-> 由 `bench_module` 自动生成。**只读集成品**：本目录不含原始数据，`trace_id` 可回
-> `eval_input` 还原现场；任何一行都不带绝对路径。
-
-- 构建时间：{built_at}
-- 抽样种子：`{seed}`（同 seed + 同池子 → 同一批题；想换题就换 seed，但**换 seed 后不要和历史分数比**）
-- 口径版本：bench_module v{version}
-- 主池：`pool/` 下 {pool_cases} 条 case，最近刷新 {last_refresh}
-- 可采样（过质量闸后）：{usable} 条；合并重复问句 {dup_collapsed} 条
-- join 命中率 {join_rate:.1%}
-
-## 目录
-
-```
-{out_name}/
-├── manifest.json                 构建参数 + 主池状态 + 每档 requested/actual + 质量指标
-├── pool/                         主池（唯一真源，每日增量刷新）
-│   ├── aime_expert.jsonl         一行一个 case，只存小字段（无 messages）
-│   └── aime_fast.jsonl
-├── aime_expert/ | aime_fast/     两个池子分开建，互不掺和
-│   ├── pool_stats.json           池子全量分布（bench 是否无偏的基准线）
-│   ├── tier_500.jsonl …          一行一个 case，全内联、自包含
-│   ├── long/tier_*_long.jsonl    长上下文（total_tokens ≥ {long_tokens}）单独一档
-│   └── stats/
-│       ├── tier_N.json                          计数 / 配额完成度 / token 分位
-│       ├── tier_N.dim_*.csv                     12 个维度长表
-│       ├── tier_N.coverage.csv                  每维偏差 + 是否设计性偏差
-│       └── tier_N.crosstab_stage_mechanism.csv  环节 × 机制
-```
-
-## 一行一个 case 的字段
-
-| 字段 | 说明 |
-|---|---|
-| `trace_id` / `session_id` | 身份，回源用 |
-| `model` | `aime_expert` / `aime_fast` |
-| `question` | 本轮问句（归一化前的原样文本） |
-| `messages` | **完整上下文**：多轮含前序轮次、工具调用与返回 |
-| `message_pool` | 会话级 system/背景消息池 |
-| `turn` | `single` / `multi` |
-| `session_round` / `turn_index` | 轮次 |
-| `severity` | `P0`–`P4` / `GOLD`（GOLD = 归因未发现任何 problem） |
-| `primary` | 主标签，`{{l1,l2,l3}}` 形如 `S9` / `M5` / `S9.M5.1` |
-| `problems[]` | 全部 problem：`severity / label / path / path_source / component` |
-| `stats` | `total_tokens / input_tokens / tool_count / latency / dup_question` |
-| `meta` | 轨迹元信息白名单 |
-| `bench` | `{{tier, rank, seed, pool_size, stratum}}` — 复算抽样所需 |
-
-## 统计 CSV（长表，直接 group by 画图）
-
-```
-dim,key,bucket,count,share_in_bench,share_in_pool,delta_pp
-```
-
-- `bucket` 是人读名（`stage` → 答案合成，`mechanism` → 加工计算错误，`pattern` → 叶名）
-- `stage / mechanism / pattern` 三张表**只统计有缺陷的 case**（GOLD 无环节/机制/叶，不混进来；
-  它在 `severity` 维度里就是 `GOLD` 一档）
-- `delta_pp` = bench 占比 − 池子占比（百分点）
-
-### 怎么读 `delta_pp`（重要）
-
-`coverage.csv` 里 `by_design=yes` 的维度（severity / stage / mechanism / pattern / turn_type）
-**故意**偏离池子分布：bench 就是要多放 P0、每个机制都要有、单多轮按 75:25，
-这些维度的 `delta_pp` 是设计结果，不是抽样误差。
-
-真正衡量抽样质量的是**非**设计维度——`day` / `tokens` / `round` / `group` /
-`recalled_from`：这些应该贴近 0。
-
-如果上面这几维哪天飙了，说明抽样产生了时间或来源上的偏斜，要查。
-
-> 难度（difficulty）标签已废弃且大面积缺失，不参与分层与统计。
-
-## 三条必须知道的口径
-
-1. **GOLD 不等于人工确认无问题**，它是"归因模型没发现 problem"。假阴性只能靠下游抽检发现。
-2. **档位嵌套**：`tier_500 ⊂ tier_1000 ⊂ tier_5000 ⊂ tier_10000`（同一次构建内）。所以
-   "加题后分数掉了"可以直接解读成新增题目更难，而不是换了一批题。
-3. **不掺水**：某池子凑不满某档时 `actual < requested`，`manifest.json` 里如实记
-   `shortfall`，不会重复计数、不会拿 P2–P4 硬凑。
-4. **绝对路径**：产物元字段（trace_id / batch_id / group / bench / stats）里没有任何绝对路径；
-   但 `messages` / `message_pool` 是模型原始轨迹，**原样保留**（沙箱里会出现 `/mnt/aime-oss/...`
-   之类的路径），不要为了"干净"去改它——改了就不是同一条 trace 了。
-"""
+TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DATASET_README.md")
 
 
 def write_readme(out, manifest, params):
-    path = os.path.join(out, "README.md")
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(README_TMPL.format(
-            built_at=manifest.get("built_at", ""),
-            seed=manifest["params"]["seed"],
-            version=manifest.get("version", ""),
-            pool_cases=manifest["pool"].get("cases", 0),
-            last_refresh=manifest["pool"].get("last_refresh", ""),
-            usable=manifest["pool"].get("usable_cases", 0),
-            dup_collapsed=manifest["pool"].get("dup_collapsed", 0),
-            join_rate=manifest["quality"].get("join_rate", 0.0),
-            out_name=os.path.basename(out.rstrip("/")),
-            long_tokens=params.get("long_tokens", 65536),
-        ))
+    """把当前 manifest 的数字灌进模板，生成数据目录的 README。"""
+    pool = manifest.get("pool") or {}
+    quality = manifest.get("quality") or {}
+    rows = []
+    for model, info in (manifest.get("models") or {}).items():
+        for tier, st in sorted((info.get("tiers") or {}).items(), key=lambda kv: int(kv[0])):
+            rows.append("| %s | %s | %s | %s |" % (
+                model, tier, st.get("actual"), st.get("shortfall", 0)))
+    tier_table = ("| 模型 | 档位 | 实际条数 | shortfall |\n|---|---|---|---|\n"
+                  + "\n".join(rows)) if rows else "（本次未抽档位）"
+
+    with open(TEMPLATE_PATH, encoding="utf-8") as fh:
+        text = fh.read()
+    repl = {
+        "@@BUILT_AT@@": manifest.get("built_at", ""),
+        "@@VERSION@@": manifest.get("version", ""),
+        "@@SEED@@": (manifest.get("params") or {}).get("seed", ""),
+        "@@POOL_CASES@@": str(pool.get("cases", 0)),
+        "@@POOL_EXPERT@@": str((pool.get("cases_by_model") or {}).get("aime_expert", 0)),
+        "@@POOL_FAST@@": str((pool.get("cases_by_model") or {}).get("aime_fast", 0)),
+        "@@LAST_REFRESH@@": pool.get("last_refresh", ""),
+        "@@USABLE@@": str(pool.get("usable_cases", 0)),
+        "@@JOIN_RATE@@": "%.1f%%" % ((quality.get("join_rate") or 0) * 100),
+        "@@TIER_TABLE@@": tier_table,
+        "@@LONG_TOKENS@@": str((manifest.get("params") or {}).get("long_tokens", 65536)),
+        "@@JOIN_FAILED@@": str(quality.get("join_failed_dropped", 0)),
+        "@@DUP@@": str(pool.get("dup_collapsed", 0)),
+        "@@Q_SHORT@@": str(quality.get("q_too_short_dropped", 0)),
+        "@@Q_URL@@": str(quality.get("q_url_only_dropped", 0)),
+        "@@Q_FOLLOW@@": str(quality.get("q_short_followup_kept", 0)),
+    }
+    for k, v in repl.items():
+        text = text.replace(k, v)
+    with open(os.path.join(out, "README.md"), "w", encoding="utf-8") as fh:
+        fh.write(text)
