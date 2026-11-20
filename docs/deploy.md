@@ -240,3 +240,30 @@ ls /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/taxonomy/inventor
 
 想确认上游又灌了多少坏数据：`grep -c '"session_id": "None"' <归因文件>`，
 再对照账本最近的 `session_filled`。
+
+## 11. 清理上游判定的脏数据（4.4.12）
+
+上游把某批记录判为脏数据、并从归因/输入里清掉后，我们要把这批从树里删掉。**只删不重判**：
+条目的分类结果原样保留，删完重新聚合交付。
+
+```bash
+cd /mnt/aime_eval_ssd/code/2_cluster_algorithm && source .deploy/env.sh
+# 1) 先看要删多少（不动盘）
+python3 bin/prune_items.py --work runs/<树>/run_merged --self-session --dry-run
+# 2) 真删：items / locators / assign 三处同步删，自动备份 + 留痕
+python3 bin/prune_items.py --work runs/<树>/run_merged --self-session --reason "上游脏数据 <日期>"
+#    也可以按清单删：--drop-ids /tmp/dirty_case_ids.txt
+# 3) 重新聚合、校验、出报告（不调用模型）
+./run.sh finish runs/<树>/run_merged runs/<树>/out 0 runs/_src/<树>
+# 4) 交付 + 重建 badcase/goldencase
+cp runs/<树>/out/* "$AIME_ROOT/cluster/<树>"/
+python3 bin/build_case_lists.py --channel aime --attr-root "$AIME_ROOT" --out "$CASE_INDEX_ROOT" --cases-root "$CASES_INDEX"
+```
+
+- `--self-session` 选的是 `session_id == trace_id` 的条目，即 ingest 对上游 `session_id=null`
+  做兜底留下的痕迹；上游把数据清掉后，这批就是脏数据（2026-11-20 用这条清了 expert 119 条 / 33 个 case）。
+- 备份在 `runs/<树>/run_merged/.prune-<ts>/`（含原 items/locators/assign），留痕在
+  `runs/<树>/run_merged/prune.jsonl`。确认无问题后备份可删。
+- `prune_items.py` 会断言 `assign` 行数 == `items` 行数；不一致直接退出，不会留下半删状态。
+- 身份索引（`cases_<渠道>.jsonl`）不跟着删：它按 TTL 重建，脏 trace 只是查不到新条目，
+  不影响已有条目。要立刻反映可在下一轮 `--rebuild` 前重建索引。

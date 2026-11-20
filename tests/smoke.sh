@@ -21,4 +21,5 @@ python3 "$ROOT/bin/cluster.py" verify --work "$TMP/run" --out "$TMP/out" --src "
 rm -rf "$TMP"
 python3 "$HERE/test_repair.py" | tail -1
 python3 "$HERE/test_session_fill.py" | tail -1
+python3 "$HERE/test_prune.py" | tail -1
 echo "SMOKE OK"
