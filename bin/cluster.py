@@ -70,6 +70,12 @@ def clean(s):
     return s
 
 
+def usable_sid(s):
+    """session_id 是否可信：上游回补会把缺失值写成字符串 "None"/"null"，这类不是真身份。"""
+    v = clean(s).strip()
+    return '' if v.lower() in ('', 'none', 'null', 'nan', 'n/a', '-') else v
+
+
 def as_list(v):
     if isinstance(v, list):
         return v
@@ -243,6 +249,7 @@ def cmd_ingest(a):
     # 流式落盘：240k 条目全量留在 items 列表里会吃掉 5-8 GB（弗吉尼亚容器只有 16 GiB），
     # 这里边算边写，只在内存里留去重键与统计计数。
     traces, sessions, case_ids = set(), set(), set()
+    sid_filled = 0
     comp_counter = collections.Counter()
     unknown = set()
     bad = []
@@ -276,7 +283,11 @@ def cmd_ingest(a):
                     else:
                         missed += 1
                     question = c.get('question') or clean(smeta.get('question'))
-                    sid = c.get('session_id') or clean(smeta.get('session_id'))
+                    sid = usable_sid(c.get('session_id') or smeta.get('session_id'))
+                    if not sid and tid:
+                        # 上游回补缺 session_id（写成 "None"）：退用 trace_id，保住可追溯性，并记账
+                        sid = tid
+                        sid_filled += 1
                     rtime = c.get('request_time') or clean(smeta.get('request_time'))
                     batch = c.get('batch_id') or clean(rec.get('batch_id')) or (rtime[:10] if rtime else '')
                     model = c.get('model') or model_dir
@@ -339,7 +350,7 @@ def cmd_ingest(a):
         'cases': len(case_ids),
         'items': n_items,
         'case_joined': joined, 'case_missing': missed, 'dup_items': dup,
-        'bad_lines': bad[:20], 'bad_line_count': len(bad),
+        'bad_lines': bad[:20], 'bad_line_count': len(bad), 'session_filled': sid_filled,
         'components': dict(comp_counter.most_common()),
     }
     jdump(stats, os.path.join(a.out, 'stats.json'))
@@ -351,6 +362,8 @@ def cmd_ingest(a):
     print(f"items={n_items} traces={stats['records']} sessions={stats['sessions']} "
           f"components={len(stats['components'])} bad_lines={len(bad)} "
           f"cases_joined={joined} cases_missing={missed} dup_items={dup}")
+    if sid_filled:
+        print(f"  WARN session_id 缺失 {sid_filled} 条，已用 trace_id 兜底（见 stats.json 的 session_filled）")
 
 
 # ---------------------------------------------------------------- chunk

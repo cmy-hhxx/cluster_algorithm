@@ -1,8 +1,8 @@
 {
- "version": "4.4.10",
+ "version": "4.4.11",
  "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 181 模式；矩阵 67/84 有叶、17 格登记不适用；引用自检通过)",
  "created": "2026-10-28",
- "updated": "2026-11-18",
+ "updated": "2026-11-20",
  "changes": [
   "1.1.0 增加会话主口径、横切标签、syndrome、comp2l1 显式映射",
   "1.2.0 提示词升级为可判定规格：决策顺序、边界裁决表、真实样例、可执行自检、反模式清单",
@@ -34,7 +34,8 @@
   "4.4.7 环节×机制矩阵体检：84 格里 61 有叶、23 空。用生产日志的 bad-paths 统计（3 个月 130 轮）找出模型真实索要过的空位，再按「该环节能否独立承接该机制」逐一裁决，补 6 叶：S1.M4.1 查询项不可执行、S1.M5.1 取数规划自算数值错、S2.M5.1 检索规划自算数值错、S5.M1.1 排了检索未执行、S8.M6.1 识图内容凭空补写、S10.M4.1 请求参数对不上工具（日志里要过 92 次）；拒补 5 处（S6.M1/S6.M2/S6.M5/S12.M4/S3.M7，缺陷分别归 S10.M2、S12.M1、S9.M5、S12.M3.1、S3.M4）。其余 17 格在 taxonomy/matrix_na.json 登记「不设叶子 + 落到哪」，新增 taxonomy/MATRIX.md、bin/export_matrix.py 与 lint 校验 matrix_hole/matrix_stale_na，以后空格必须有理由",
   "4.4.8 非法 path 增加「带清单重问」：重试耗尽后只挑被退回的行，附本环节全部叶子清单（id|名称|机制）+ 被退回路径的逐条原因再问一次；合法则与上一轮合法行合并、标 uncertain(edge) 进复核，回答 NONE 判缺叶立即失败，仍非法退回原二分/失败逻辑。不替模型猜、不兜底到最近叶；新增 logs/missing_leaf_<渠道>.jsonl 留痕（append-only，run_trees 每轮打印 +N 与 rejected->chosen 分布）与 unresolved 的 repair 字段；CLUSTER_PATH_REPAIR=0 可退回旧行为；tests/test_repair.py 7 例确定性测试并入 smoke",
   "4.4.9 单树 ENOMEM 自动重试：cgroup 页缓存打满时 make_delta/ingest 会偶发 Cannot allocate memory（memory.reclaim 只读、无法主动回收），失败后缓存即回落、重跑必过。改为失败输出命中 Errno 12 时 sync+等 10s 重跑一次（CLUSTER_ENOMEM_RETRY=0 关闭），其他失败照旧立即上报；每棵树输出另存 logs/tree-<树>.log",
-  "4.4.10 429 风暴容错：REQUEST_ATTEMPTS 默认 5→8（退避 2/4/8/16/32/60/60/60s ≈ 4min）。21:02 那轮 aime_fast 因 5 轮重试全撞限流而整树失败（21:11 并发 2 重跑 16 条 5 秒通过），属短时高峰；失败语义不变，仅多等"
+  "4.4.10 429 风暴容错：REQUEST_ATTEMPTS 默认 5→8（退避 2/4/8/16/32/60/60/60s ≈ 4min）。21:02 那轮 aime_fast 因 5 轮重试全撞限流而整树失败（21:11 并发 2 重跑 16 条 5 秒通过），属短时高峰；失败语义不变，仅多等",
+  "4.4.11 session_id 兜底：上游回补（fill_source=session_fill）把缺失的 session_id 写成字符串 \"None\"，原样进树会让 verify 判「缺 trace_id/session_id」并整树 rc=1（2026-11-20 12:44 aime_expert 事故，119 条坏数据集中在 expert 11-11/11-12/11-13）。ingest 起把 \"\"/\"None\"/\"null\"/\"nan\" 视为缺失，退用 trace_id 保证可追溯，并在 stats.json 记 session_filled、账本 _runs.jsonl 记 session_filled（仅 >0 时写）；日志打 WARN 行。verify 判定不变（trace_id 与兜底后的 session_id 仍必须非空）；tests/test_session_fill.py 4 例并入 smoke"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",

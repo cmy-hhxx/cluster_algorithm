@@ -164,15 +164,20 @@ baseline() {
   else echo ""; fi
 }
 nitems() { if [[ -f "$1/items.jsonl" ]]; then wc -l < "$1/items.jsonl" | tr -d ' '; else echo 0; fi; }
+sid_filled_of() {  # $1=run 目录；ingest 里 session_id 缺失改用 trace_id 的条数
+  if [[ -f "$1/stats.json" ]]; then
+    python3 -c "import json;print(json.load(open('$1/stats.json')).get('session_filled',0))" 2>/dev/null || echo 0
+  else echo 0; fi
+}
 rep_count() {  # 缺叶候选日志当前行数（文件不存在算 0）
   if [[ -f "$CLUSTER_REPAIR_LOG" ]]; then wc -l < "$CLUSTER_REPAIR_LOG" | tr -d ' '; else echo 0; fi
 }
 
-ledger() {  # $1=树 $2=模式 $3=条目 $4=增量 $5=耗时 $6=校验
+ledger() {  # $1=树 $2=模式 $3=条目 $4=增量 $5=耗时 $6=校验 $7=session_id 兜底条数
   python3 - "$LEDGER" "$1" "$2" "$3" "$4" "$5" "$6" "$VER" "${CH:-unknown}" \
-           "${REP_BASE:-0}" "$CLUSTER_REPAIR_LOG" <<'PY'
+           "${REP_BASE:-0}" "$CLUSTER_REPAIR_LOG" "${7:-0}" <<'PY'
 import json, os, sys, datetime
-p, tree, mode, items, delta, elapsed, verify, ver, ch, base, rep = sys.argv[1:12]
+p, tree, mode, items, delta, elapsed, verify, ver, ch, base, rep, sidf = sys.argv[1:13]
 row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
        "channel": ch, "tree": tree, "mode": mode, "items": int(items), "delta": int(delta),
        "elapsed_s": int(elapsed), "verify": verify, "version": ver}
@@ -188,6 +193,8 @@ if os.path.exists(rep):
             none += o == "none"
     if ok or none:
         row["repaired"], row["nofit"] = ok, none
+if int(sidf or 0):      # 上游回补把 session_id 写成 "None" 的条数（ingest 已用 trace_id 兜底）
+    row["session_filled"] = int(sidf)
 with open(p, "a", encoding="utf-8") as fh:
     fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 PY
@@ -195,7 +202,7 @@ PY
 
 run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
   local t=$1 src=$2 deliver=$3 srcroot=$4
-  local out base final t0 n delta v mode
+  local out base final t0 n delta v mode sidf=0
   out="$WORK/$t/out"
   REP_BASE=$(rep_count)
 
@@ -224,12 +231,13 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     rm -rf "$WORK/$t/run_delta"        # 上一次可能被中途杀掉，清掉避免复用半成品判定
     python3 bin/cluster.py ingest --input "$src" --out "$WORK/$t/run_new" \
       ${CASES_INDEX:+--cases "$CASES_INDEX"} ${CH:+--channel "$CH"} | tail -1
+    sidf=$(sid_filled_of "$WORK/$t/run_new")
     python3 bin/make_delta.py --old "$base" --new "$WORK/$t/run_new" --out "$WORK/$t/run_delta" | tail -1
     delta=$(python3 -c "import json;print(json.load(open('$WORK/$t/run_delta/stats.json'))['delta'])")
     if [[ "$delta" == "0" ]]; then
       echo "  无新增条目，跳过"
       rm -rf "$WORK/$t/run_new" "$WORK/$t/run_delta"
-      ledger "$t" incremental "$(nitems "$base")" 0 "$(( $(date +%s) - t0 ))" "noop"
+      ledger "$t" incremental "$(nitems "$base")" 0 "$(( $(date +%s) - t0 ))" "noop" 0
       return 0
     fi
     python3 bin/cluster.py chunk --work "$WORK/$t/run_delta" --size 60
@@ -247,6 +255,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     # 全量必须干净：旧 assign/*.out.jsonl 若 seq 恰好对得上，classify 会误判「已完成」而复用旧判定
     rm -rf "$WORK/$t/run"
     ./run.sh init "$src" "$WORK/$t/run" "$CASES_INDEX" "$CH"
+    sidf=$(sid_filled_of "$WORK/$t/run")
     REUSE=""
     if [[ $REBUILD -eq 1 ]]; then
       OLD=""
@@ -276,7 +285,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     echo "  交付：${deliver}（$(ls -1 "$deliver" | wc -l | tr -d ' ') 个文件）"
   fi
   echo "  结果：$n 条，$v"
-  ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v"
+  ledger "$t" "$mode" "$n" "$delta" "$(( $(date +%s) - t0 ))" "$v" "$sidf"
 }
 
 # 单棵树跑失败时，若原因是 cgroup ENOMEM（页缓存把 memory.max 打满），

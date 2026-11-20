@@ -222,3 +222,21 @@ ls /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/taxonomy/inventor
 
 首次部署完不要直接开守护：先手动 `bin/run_trees.sh --incremental --no-full-fallback`
 看两棵树都能交付，再按 §6 起 tmux。
+
+## 10. session_id 兜底（4.4.11）
+
+上游回补（归因文件里 `fill_source=session_fill`、`fetched_by=v2only` 那批）会把缺失的
+`session_id` 写成字符串 `"None"`。这种记录原样进树，`verify` 会判
+`item_index 缺 trace_id/session_id` 并让整棵树 rc=1；因为失败树不推进基线，下一轮
+又会重新摄入同一批坏数据 → **同一棵树会永久卡住**（2026-11-20 12:44 aime_expert，119 条）。
+
+现在 `ingest` 里 `''` / `"None"` / `"null"` / `"nan"` / `"n/a"` / `"-"` 都视为缺失，
+退用 `trace_id` 作为 `session_id`：
+
+- 条目不丢、聚类标签不受影响；代价是这些 trace 各自算一个会话，会话数会略高。
+- `stats.json` 记 `session_filled=N`，日志打一行 `WARN session_id 缺失 N 条`；
+  账本 `_runs.jsonl` 仅在 N>0 时写 `session_filled`，便于回查是哪几轮补的。
+- `verify` 规则不变：兜底后 `trace_id` 与 `session_id` 仍必须非空，真缺 `trace_id` 照样失败。
+
+想确认上游又灌了多少坏数据：`grep -c '"session_id": "None"' <归因文件>`，
+再对照账本最近的 `session_filled`。
