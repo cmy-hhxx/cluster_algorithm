@@ -209,7 +209,27 @@ python3 bench_module/tests/test_bench.py     # 端到端，约 0.3s，自带迷�
 
 ---
 
-## 6. 它故意不做什么
+## 6. 接 AB 测试（`abtest/`）
+
+bench 抽完档位后，`abtest/make_before_release.py` 把某一档装配成一次发版前后对比的
+「发版前」口径（`01_targets/` + `02_before_release/{inputs,attribution,cluster_tree}` +
+`00_manifest/` + `05_compare/`）。纯切片：不重跑归因、不重跑聚类，30 秒级。
+
+```bash
+python3 bench_module/abtest/make_before_release.py \
+    --bench-dir /mnt/aime_eval_ssd/3_dynamic_bench \
+    --eval-input /mnt/aime_eval_ssd/1_aime/eval_input \
+    --eval-output /mnt/aime_eval_ssd/1_aime/eval_output \
+    --out /mnt/aime_eval_ssd/1_aime/ab_test/2_version1119_test \
+    --model aime_expert --tier 1000
+```
+
+细节见 [`abtest/README.md`](abtest/README.md)。它做的三条对齐（旧尾巴截断、severity 以归因为准、
+`leaf_vintage` 标记）都在产物 README 里逐条计数，不静默。
+
+---
+
+## 7. 它故意不做什么
 
 - **不做版本号/哈希快照**：用户明确要"一个完整测试集，动态加入"，每次重抽即可。
 - **不做人工审核队列**：`GOLD` 是归因模型的判断（假阴性风险靠 `coverage.csv` 和下游抽检兜）。
