@@ -172,15 +172,18 @@ README_TMPL = """# AIME 动态 bench（数据说明）
 - 构建时间：{built_at}
 - 抽样种子：`{seed}`（同 seed + 同池子 → 同一批题；想换题就换 seed，但**换 seed 后不要和历史分数比**）
 - 口径版本：bench_module v{version}
-- 源：归因 `*attribution*.jsonl`（{attr_files} 个文件）× 聚类 `item_index.jsonl`
-  → 原始 case {cases_raw} → 去重后池子 {cases_dedup}（合并重复问句 {dup_collapsed} 条）
-- join 命中率 {join_rate:.1%}；从 `eval_input` 补回问句 {q_backfilled} 条
+- 主池：`pool/` 下 {pool_cases} 条 case，最近刷新 {last_refresh}
+- 可采样（过质量闸后）：{usable} 条；合并重复问句 {dup_collapsed} 条
+- join 命中率 {join_rate:.1%}
 
 ## 目录
 
 ```
 {out_name}/
-├── manifest.json                 构建参数 + 每档 requested/actual + 质量指标
+├── manifest.json                 构建参数 + 主池状态 + 每档 requested/actual + 质量指标
+├── pool/                         主池（唯一真源，每日增量刷新）
+│   ├── aime_expert.jsonl         一行一个 case，只存小字段（无 messages）
+│   └── aime_fast.jsonl
 ├── aime_expert/ | aime_fast/     两个池子分开建，互不掺和
 │   ├── pool_stats.json           池子全量分布（bench 是否无偏的基准线）
 │   ├── tier_500.jsonl …          一行一个 case，全内联、自包含
@@ -254,12 +257,11 @@ def write_readme(out, manifest, params):
             built_at=manifest.get("built_at", ""),
             seed=manifest["params"]["seed"],
             version=manifest.get("version", ""),
-            attr_files=manifest["source"].get("attr_files", 0),
-            cases_raw=manifest["pool"].get("cases_raw", 0),
-            cases_dedup=manifest["pool"].get("cases_dedup", 0),
+            pool_cases=manifest["pool"].get("cases", 0),
+            last_refresh=manifest["pool"].get("last_refresh", ""),
+            usable=manifest["pool"].get("usable_cases", 0),
             dup_collapsed=manifest["pool"].get("dup_collapsed", 0),
             join_rate=manifest["quality"].get("join_rate", 0.0),
-            q_backfilled=manifest["quality"].get("q_backfilled", 0),
             out_name=os.path.basename(out.rstrip("/")),
             long_tokens=params.get("long_tokens", 65536),
         ))

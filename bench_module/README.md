@@ -9,12 +9,21 @@
 
 ## 1. 它到底在做什么
 
-四步，每步都能单独复算：
+**先把所有 case 收进一个落盘的主池，再从池子里抽档位。** 池子是唯一真源，档位只是投影。
 
-1. **装配 case 表**：扫 `eval_output/**/*attribution*.jsonl`，一行一个 `trace_id`（= 一个 case）。
+```
+eval_output/**/*attribution*.jsonl ─┐
+                                    ├─→ pool/<model>.jsonl   ← 主池（每日增量刷新，唯一真源）
+eval_output/cluster/item_index.jsonl┘         │
+                                              ├─→ tier_500 / 1000 / 5000 / 10000
+eval_input（取 messages，定位表加速）──────────┘
+```
+
+1. **收池**：扫 `eval_output/**/*attribution*.jsonl`，一行一个 `trace_id`（= 一个 case），
+   写进 `pool/<model>.jsonl`。**增量**：`pool/state.json` 记着每个归因文件的 size+mtime，
+   只解析新增/变更的文件；同一 trace 以最新一次归因为准，`first_seen` 保留最早入池时间。
 2. **补错误模式标签**：join 聚类产物 `cluster/<model>/item_index.jsonl`，把每条 problem 对齐到
-   分类法叶 `S9.M5.1`（环节.机制.叶）。join 不上就按 `component → 段` 兜到 L1，并标
-   `path_source="component"`。
+   分类法叶 `S9.M5.1`（环节.机制.叶）。join 不上的 case 不进 bench。
 3. **只留解释得清的 case**：每一条 problem 都必须能 join 到分类法叶（`S9.M5.1`）；只要有一条
    落不到叶，整条 case 剔除，不进任何档位。剔除条数写在 `manifest.json.quality.join_failed_dropped`。
    统计口径同样不留兜底桶：没有 NA / unknown / "其他"——字段撑不起口径就直接不做那一维
@@ -39,12 +48,12 @@
 
 | 项 | 口径 |
 |---|---|
-| 池子 | 归因覆盖到的全部 case（`eval_input` 有 156k trace，但只有归因过的那部分是池子） |
+| 主池 | 归因覆盖到的全部 case，落盘在 `pool/`；每天增量刷新一次，只增不删 |
+| 档位 | 每次从主池重抽（不 pin、不累积）；同 seed + 同池子 → 结果完全一致 |
 | badcase | 有任意 problem 的 case，按**最严重**那条 problem 定 P0–P4 |
 | goldencase | `problem` 为空的 case（`severity = "GOLD"`） |
 | 去重键 | `(model, 规范化问句, 单/多轮)`；保留最早的一条 |
 | 长上下文 | `total_tokens ≥ 65536` 的 case 不进基础档，落 `long/tier_N_long.jsonl` |
-| 档位 | 每次重建都重抽（不 pin、不累积）；同 seed + 同池子 → 结果完全一致 |
 | 嵌套 | `tier_500 ⊂ tier_1000 ⊂ tier_5000 ⊂ tier_10000`（同 seed 下逐级加题） |
 | 双池 | `aime_expert` / `aime_fast` 分开建，互不掺和 |
 
@@ -67,15 +76,20 @@ tier 10000: golden 2000 | P0 1769(封顶于池子) | P1 ~2492 | P2 ~1869 | P3 ~1
 
 ```
 /mnt/aime_eval_ssd/3_dynamic_bench/
-├── manifest.json                   # 构建时间 / 参数 / 源指纹 / 每档 requested vs actual / 质量指标
+├── manifest.json                   # 构建时间 / 参数 / 主池状态 / 每档 requested vs actual / 质量指标
+├── pool/                           # 主池：唯一真源，每日增量刷新
+│   ├── aime_expert.jsonl           # 一行一个 case，只存小字段（无 messages）
+│   ├── aime_fast.jsonl
+│   ├── state.json                  # 归因文件 size+mtime，增量只扫新批次
+│   └── manifest.json               # 最近一次刷新的统计
 ├── aime_expert/
 │   ├── pool_stats.json             # 池子全量分布（bench 是否无偏的基准线）
 │   ├── tier_500.jsonl              # 一行一个 case，全内联、自包含
 │   ├── tier_1000.jsonl
 │   ├── long/tier_10_long.jsonl     # 长上下文单独一档
 │   └── stats/
-│       ├── tier_500.json                                  # 计数 + 配额完成度 + token 分位
-│       ├── tier_500.dim_*.csv                             # 12 个维度长表
+│       ├── tier_500.json                                  # 计数 + 配额完成度
+│       ├── tier_500.dim_*.csv                             # 8 个维度长表
 │       ├── tier_500.coverage.csv                          # 每维偏差是否在容差内
 │       └── tier_500.crosstab_stage_mechanism.csv          # 环节 × 机制 交叉表
 ├── aime_fast/  （同结构）
@@ -110,9 +124,9 @@ tier 10000: golden 2000 | P0 1769(封顶于池子) | P1 ~2492 | P2 ~1869 | P3 ~1
 dim,key,bucket,count,share_in_bench,share_in_pool,delta_pp
 ```
 
-- `dim`：维度名（severity / stage / mechanism / pattern / turn_type / day /
-  tokens / round / group / recalled_from / pattern_source）
-  （难度 difficulty 标签已废弃、大面积缺失，不参与统计）
+- `dim`：维度名（severity / stage / mechanism / pattern / turn_type / day / round / group）
+  口径铁律：**不留兜底桶**——没有 NA / unknown / "其他"；字段撑不起口径就不做这一维
+  （难度、token 分位、recalled_from 都已因此下线）
 - `key`：机器码（`S9` / `M5` / `S9.M5.1`）；`bucket`：人读名（答案合成 / 加工计算错误 / 叶名）
 - `delta_pp`：bench 占比减池子占比（百分点）。**这是判断"抽偏没偏"的唯一指标**
 
@@ -122,22 +136,38 @@ dim,key,bucket,count,share_in_bench,share_in_pool,delta_pp
 
 ## 4. 跑法
 
-本机部署 + 跑（推荐）：
+### 4.1 日常（池子自动刷新）
+
+服务器上已经挂了一个 tmux 守护，**每 24 小时**增量刷一次主池（只刷池，不动档位）：
 
 ```bash
-./bench_module/deploy.sh            # 只同步代码
-./bench_module/deploy.sh --run      # 同步 + 后台起一次构建（首次要建定位表，较慢）
+bash bench_module/pool_daemon.sh status     # 看是否在跑 + 最近日志
+bash bench_module/pool_daemon.sh once       # 手动刷一次（新问句立刻进池）
+bash bench_module/pool_daemon.sh start|stop # 起/停守护
 ```
 
-服务器上直接跑：
+日志：`/mnt/aime_eval_ssd/3_dynamic_bench/_build/pool_refresh.log`。
+
+### 4.2 发版前（从池子重抽档位）
+
+池子已经是最新，跳过扫描直接抽，秒级到分钟级：
 
 ```bash
 cd /mnt/aime_eval_ssd/code/2_cluster_algorithm
 python3 bench_module/build_bench.py \
-    --attr-root    /mnt/aime_eval_ssd/1_aime/eval_output \
-    --cluster-root /mnt/aime_eval_ssd/1_aime/eval_output/cluster \
-    --eval-input   /mnt/aime_eval_ssd/1_aime/eval_input \
-    --out          /mnt/aime_eval_ssd/3_dynamic_bench
+    --attr-root  /mnt/aime_eval_ssd/1_aime/eval_output \
+    --eval-input /mnt/aime_eval_ssd/1_aime/eval_input \
+    --out        /mnt/aime_eval_ssd/3_dynamic_bench \
+    --no-refresh --tiers 500,1000,5000,10000
+```
+
+要"刷池 + 抽档一次做完"，去掉 `--no-refresh` 即可（默认就会先刷池）。
+
+### 4.3 本机部署
+
+```bash
+./bench_module/deploy.sh                 # 只同步代码
+./bench_module/deploy.sh --run           # 同步 + 后台起一次完整构建
 ```
 
 常用开关：
@@ -150,9 +180,12 @@ python3 bench_module/build_bench.py \
 | `--long-tokens` | `65536` | 长上下文的阈值（`total_tokens`） |
 | `--skip-messages` | 关 | 只出统计和清单骨架，不取原文（试跑用） |
 | `--models` | `aime_expert,aime_fast` | 建哪几个池 |
+| `--pool-only` | 关 | 只刷主池，不抽档位 |
+| `--no-refresh` | 关 | 不刷池，直接拿现有池子重抽 |
 
-**首次运行**会为 `eval_input` 建 `_build/trace_loc.tsv`（156k 行，约 15MB），要读一遍几十 G 的
-原文，十几分钟；之后按 `size+mtime` 增量刷新，重抽只 seek 读选中的那几千行。
+**首次运行**会建两份索引：`_build/trace_loc.tsv`（`trace_id → 文件偏移`，~15MB）和
+`pool/*.jsonl`（主池）。之后两者都按 `size+mtime` 增量刷新：
+日常刷池几十秒，重抽档位只 seek 读选中的那几千行。
 
 ---
 
@@ -165,7 +198,8 @@ python3 bench_module/build_bench.py \
 5. 产物**元字段**内不出现绝对路径（`trace_id / batch_id / group / bench / stats`）；定位表内部也只用
    相对 `eval_input` 的路径。`messages / message_pool` 是模型原始轨迹，原样保留（含沙箱路径），
    改它就不是同一条 trace 了；
-6. 只读聚类产物：`attr_root` / `cluster_root` / `eval_input` 下不写任何文件。
+6. 只读聚类产物：`attr_root` / `cluster_root` / `eval_input` 下不写任何文件；
+7. 池子刷新幂等：同一批归因文件重复刷新，池子条数与内容不变（`state.json` 的 size+mtime 兜住）。
 
 跑一遍自检：
 
@@ -180,4 +214,5 @@ python3 bench_module/tests/test_bench.py     # 端到端，约 0.3s，自带迷�
 - **不做版本号/哈希快照**：用户明确要"一个完整测试集，动态加入"，每次重抽即可。
 - **不做人工审核队列**：`GOLD` 是归因模型的判断（假阴性风险靠 `coverage.csv` 和下游抽检兜）。
 - **不做可视化服务**：可视化由专门同事做，这里只保证数据是全的、口径是自解释的。
-- **不接 `run_trees.sh`**：聚类流程不动。要"每轮自动补池"时，在外部调度里加一行 CLI 调用即可。
+- **不接 `run_trees.sh`**：聚类流程不动；池子的日常刷新由 `pool_daemon.sh` 独立负责。
+- **不做自动重抽**：池子每天更新，但档位只在发版前手动抽——否则两次发版之间题面会漂，分数不可比。

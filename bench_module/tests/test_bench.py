@@ -282,5 +282,69 @@ class BenchTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(ldir))
 
 
+
+class PoolTest(unittest.TestCase):
+    """主池：落盘、增量、可复用。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="bench_pool_")
+        cls.attr, cls.eval_input, cls.out_root = make_fixture(cls.tmp, n=120)
+        cls.out, _ = run_build(cls.attr, cls.eval_input, cls.out_root, tiers="100")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def pool_path(self, model="aime_expert"):
+        return os.path.join(self.out, "pool", "%s.jsonl" % model)
+
+    def run_pool(self):
+        cmd = [sys.executable, os.path.join(MODULE, "build_bench.py"),
+               "--attr-root", self.attr, "--eval-input", self.eval_input,
+               "--out", self.out, "--pool-only"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_pool_exists(self):
+        self.assertTrue(os.path.isfile(self.pool_path()), "主池必须落盘")
+        rows = load(self.pool_path())
+        self.assertGreater(len(rows), 0)
+        self.assertIn("trace_id", rows[0])
+        self.assertNotIn("messages", rows[0], "池子只存小字段，不存 messages")
+
+    def test_incremental_refresh_is_noop(self):
+        before = load(self.pool_path())
+        out = self.run_pool()
+        after = load(self.pool_path())
+        self.assertEqual(len(before), len(after), "无新文件时池子不应变化")
+        self.assertIn("新增 0", out, "增量刷新不该重复入库")
+
+    def test_new_attribution_appended(self):
+        before = {r["trace_id"] for r in load(self.pool_path())}
+        src = os.path.join(self.attr, "0_daily_eval", "aime_expert",
+                           "aime_expert_attribution-2026-09-01.jsonl")
+        rec = json.loads(open(src, encoding="utf-8").readline())
+        new = json.loads(json.dumps(rec))
+        new["session_meta"]["question"] = "How does the new marginal case work?"
+        new["turns"][0]["meta"]["trace_id"] = "zzz_new_0001"
+        with open(src, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(new, ensure_ascii=False) + "\n")
+        out = self.run_pool()
+        after = {r["trace_id"] for r in load(self.pool_path())}
+        self.assertIn("zzz_new_0001", after, "新问句要自动进池")
+        self.assertEqual(after - before, {"zzz_new_0001"})
+        self.assertIn("新增 1", out)
+
+    def test_no_refresh_still_samples(self):
+        cmd = [sys.executable, os.path.join(MODULE, "build_bench.py"),
+               "--attr-root", self.attr, "--eval-input", self.eval_input,
+               "--out", self.out, "--tiers", "100", "--no-refresh"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "aime_expert", "tier_100.jsonl")))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -120,8 +120,35 @@ class Materializer:
                 if fn.endswith(".jsonl"):
                     yield os.path.relpath(os.path.join(dirpath, fn), self.root).replace("\\", "/")
 
+    def _reconcile(self):
+        """上游会重写/追加 eval_input 文件，旧偏移会指到别的行。
+
+        凡是 size+mtime 变过的文件，先丢掉它名下的所有定位，再整文件重扫。
+        """
+        stale = []
+        for rel, sig in list(self.state.items()):
+            try:
+                st = os.stat(os.path.join(self.root, rel))
+            except OSError:
+                stale.append((rel, None))
+                continue
+            if [st.st_size, st.st_mtime_ns] != sig:
+                stale.append((rel, sig))
+        if not stale:
+            return 0
+        went = {rel for rel, _ in stale}
+        self.loc = {t: v for t, v in self.loc.items() if v[0] not in went}
+        for rel, _ in stale:
+            self.state.pop(rel, None)
+            if os.path.isfile(os.path.join(self.root, rel)):
+                self._scan(rel, set())
+        self._dirty = True
+        self.log("定位表：%d 个文件被重写，已重扫" % len(stale))
+        return len(stale)
+
     def ensure(self, wanted):
         """wanted: {trace_id: (model, batch_id)}。返回仍然缺的 trace_id 集合。"""
+        self._reconcile()
         missing = {t: v for t, v in wanted.items() if t not in self.loc}
         if not missing:
             return set()
@@ -173,6 +200,10 @@ class Materializer:
             with open(path, "rb") as fh:
                 fh.seek(off)
                 raw = fh.read(ln)
-            return json.loads(raw.decode("utf-8", "ignore"))
+            rec = json.loads(raw.decode("utf-8", "ignore"))
         except (OSError, ValueError):
             return None
+        # 偏移失效时会读到别人的行：核对身份，宁缺勿错
+        if clean(rec.get("trace_id")) != trace_id:
+            return None
+        return rec

@@ -57,70 +57,76 @@ def _int(v):
         return 0
 
 
+def case_from_turn(rec, turn, model, group):
+    """一条归因记录里的一个 turn → 一个 case（trace 粒度）。池子和旧扫描路径共用这一套。"""
+    sm = rec.get("session_meta") or {}
+    tm = turn.get("meta") or {}
+    tid = clean(tm.get("trace_id")) or clean(rec.get("trace_id"))
+    if not tid:
+        return None
+    raw_q = clean(sm.get("question")) or clean(tm.get("question"))
+    q, qfull = split_question(raw_q)
+    rt = iso_time(sm.get("request_time") or tm.get("timestamp"))
+    c = {
+        "model": model,
+        "trace_id": tid,
+        "session_id": clean(sm.get("session_id")) or clean(tm.get("session_id")),
+        "question": q,
+        "question_full": qfull,
+        "request_time": rt,
+        # 归因记录本身大多没有 batch_id：用请求日兜，定位原文时点名的就是这天的文件
+        "batch_id": clean(rec.get("batch_id")) or request_day(rt),
+        "group": group,
+        "session_round": _int(sm.get("session_round")) or _int(tm.get("turn_index")),
+        "turn_index": _int(tm.get("turn_index")),
+        "total_tokens": _int(tm.get("total_tokens")),
+        "input_tokens": _int(tm.get("input_tokens")),
+        "recalled_from": clean(sm.get("recalled_from")),
+        "comefrom": clean(sm.get("comefrom")),
+        "source": clean(sm.get("source")),
+        "problems": [],
+    }
+    for i, p in enumerate(turn.get("problem") or []):
+        if not isinstance(p, dict):
+            continue
+        sev = clean(p.get("severity"))
+        if sev not in SEV_ORDER:
+            continue
+        c["problems"].append({
+            "index": i,
+            "severity": sev,
+            "label": clean(p.get("label")),
+            "definition": clean(p.get("definition")),
+            "component": clean(p.get("component")),
+            "component_role": clean(p.get("component_role")),
+            "component_family": clean(p.get("component_family")),
+        })
+    return c
+
+
 def scan_attribution(root, models, stats):
-    """归因 → {(model, trace_id): case}。一条归因记录 = 一 turn = 一 trace。"""
+    """归因 → {(model, trace_id): case}（一次性全量扫描，池子增量刷新走 pool.py）。"""
     cases = {}
     files = _attr_files(root, models)
     stats["attr_files"] = len(files)
     for path, model in files:
         group = os.path.relpath(os.path.dirname(os.path.dirname(path)), root).replace("\\", "/")
         for rec in read_jsonl(path):
-            sm = rec.get("session_meta") or {}
             for turn in rec.get("turns") or []:
-                tm = turn.get("meta") or {}
-                tid = clean(tm.get("trace_id")) or clean(rec.get("trace_id"))
-                if not tid:
+                c = case_from_turn(rec, turn, model, group)
+                if not c:
                     stats["no_trace_id"] += 1
                     continue
-                key = (model, tid)
-                c = cases.get(key)
-                if c is None:
-                    raw_q = clean(sm.get("question")) or clean(tm.get("question"))
-                    q, qfull = split_question(raw_q)
-                    rt = iso_time(sm.get("request_time") or tm.get("timestamp"))
-                    c = cases[key] = {
-                        "model": model,
-                        "trace_id": tid,
-                        "session_id": clean(sm.get("session_id")) or clean(tm.get("session_id")),
-                        "question": q,
-                        "question_full": qfull,
-                        "norm_q": norm_question(q),
-                        "request_time": rt,
-                        # 归因记录本身大多没有 batch_id：用请求日兜，定位原文时点名的就是这天的文件
-                        "batch_id": clean(rec.get("batch_id")) or request_day(rt),
-                        "group": group,
-                        "session_round": _int(sm.get("session_round")) or _int(tm.get("turn_index")),
-                        "turn_index": _int(tm.get("turn_index")),
-                        "total_tokens": _int(tm.get("total_tokens")),
-                        "input_tokens": _int(tm.get("input_tokens")),
-                        "recalled_from": clean(sm.get("recalled_from")),
-                        "comefrom": clean(sm.get("comefrom")),
-                        "source": clean(sm.get("source")),
-                        "problems": [],
-                        "_p": {},
-                    }
-                for i, p in enumerate(turn.get("problem") or []):
-                    if not isinstance(p, dict):
-                        continue
-                    sev = clean(p.get("severity"))
-                    if sev not in SEV_ORDER:
-                        stats["bad_severity"] += 1
-                        continue
-                    # 同一 trace 可能被多份归因覆盖：按 problem_index 去重，保留先出现的
-                    if i in c["_p"]:
-                        continue
-                    c["_p"][i] = True
-                    c["problems"].append({
-                        "index": i,
-                        "severity": sev,
-                        "label": clean(p.get("label")),
-                        "definition": clean(p.get("definition")),
-                        "component": clean(p.get("component")),
-                        "component_role": clean(p.get("component_role")),
-                        "component_family": clean(p.get("component_family")),
-                    })
-    for c in cases.values():
-        c.pop("_p", None)
+                key = (model, c["trace_id"])
+                cur = cases.get(key)
+                if cur is None:
+                    cases[key] = c
+                    continue
+                # 同一 trace 被多份归因覆盖：按 problem_index 去重合并
+                seen = {p["index"] for p in cur["problems"]}
+                for p in c["problems"]:
+                    if p["index"] not in seen:
+                        cur["problems"].append(p)
     stats["cases_raw"] = len(cases)
     return cases
 

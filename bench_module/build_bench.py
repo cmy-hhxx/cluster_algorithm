@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AIME 动态 bench 取样器（独立模块，0 依赖，只读聚类产物）。
+"""AIME 动态 bench：主池 + 分层取样（独立模块，0 依赖，只读聚类产物）。
 
-它做的事：
-  1. 扫归因（*attribution*.jsonl）→ 一行一个 trace 的 case 表；
-  2. join 聚类 item_index.jsonl → 每个 problem 的 S9.M5.1 三级标签；
-  3. 按「规范化问句 + 单/多轮」去重（trace_id 是天然身份）；
-  4. 分层抽样出 500 / 1000 / 5000 / 10000 四个档位（嵌套、确定性、可复算）；
-  5. 从 eval_input 取原问句 + 多轮完整上下文（自包含，不写绝对路径）；
-  6. 落统计长表（给可视化同事）+ 覆盖度（判断有没有抽偏）+ manifest。
+数据流：
+
+    eval_output/**/*attribution*.jsonl ─┐
+                                        ├─→ pool/<model>.jsonl   ← 落盘的主池（唯一真源，增量刷新）
+    eval_output/cluster/item_index.jsonl┘         │
+                                                  ├─→ tier_500 / 1000 / 5000 / 10000
+    eval_input（取 messages，定位表加速）──────────┘
+
+两种用法：
+  只刷池（每天一次，也可手动）：   --pool-only
+  从池重抽档位（发版前，手动）：   --no-refresh
 
 不改聚类流程，不写聚类目录，不依赖 pandas/numpy。
-
-用法：
-  python3 bench_module/build_bench.py \
-      --attr-root    /mnt/aime_eval_ssd/1_aime/eval_output \
-      --cluster-root /mnt/aime_eval_ssd/1_aime/eval_output/cluster \
-      --eval-input   /mnt/aime_eval_ssd/1_aime/eval_input \
-      --out          /mnt/aime_eval_ssd/3_dynamic_bench
 """
 import argparse
 import collections
@@ -29,13 +26,14 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from benchlib import __version__                          # noqa: E402
-from benchlib.common import jdump, jload, Taxonomy         # noqa: E402
-from benchlib.loader import (backfill_questions, dedupe, drop_unclassified,  # noqa: E402
-                             load_item_index, resolve_patterns, scan_attribution)
-from benchlib.materialize import Materializer              # noqa: E402
+from benchlib import __version__                                   # noqa: E402
+from benchlib.common import jdump, Taxonomy                        # noqa: E402
+from benchlib.loader import (dedupe, drop_unclassified, load_item_index,  # noqa: E402
+                             resolve_patterns)
+from benchlib.materialize import Materializer                      # noqa: E402
+from benchlib.pool import Pool                                     # noqa: E402
 from benchlib.report import pool_stats, write_readme, write_stats  # noqa: E402
-from benchlib.sampler import plan_tiers                    # noqa: E402
+from benchlib.sampler import plan_tiers                            # noqa: E402
 
 META_KEYS = ["trace_id", "session_id", "turn_index", "model", "agent_id", "name",
              "mode", "runtime_mode", "timestamp", "latency", "n_messages",
@@ -135,11 +133,12 @@ def write_tier(path, cases, mat, tier, params, pool_size, log, stats):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="AIME 动态 bench 取样器（0 依赖）")
+    ap = argparse.ArgumentParser(description="AIME 动态 bench：主池 + 分层取样")
     ap.add_argument("--attr-root", required=True, help="归因根，如 .../1_aime/eval_output")
     ap.add_argument("--cluster-root", default="", help="聚类产物根，默认 <attr-root>/cluster")
     ap.add_argument("--eval-input", required=True, help="eval_input 根（trace 粒度原文）")
     ap.add_argument("--out", required=True, help="产物根，如 /mnt/aime_eval_ssd/3_dynamic_bench")
+    ap.add_argument("--pool-dir", default="", help="主池目录，默认 <out>/pool")
     ap.add_argument("--models", default="aime_expert,aime_fast")
     ap.add_argument("--tiers", default="500,1000,5000,10000")
     ap.add_argument("--seed", default="20261118")
@@ -147,18 +146,19 @@ def main():
     ap.add_argument("--p0-cap", type=float, default=0.25)
     ap.add_argument("--long-tokens", type=int, default=65536)
     ap.add_argument("--long-share", type=float, default=0.02)
-    ap.add_argument("--min-question-chars", type=int, default=6,
-                    help="问句归一化后短于这个长度就剔除（默认 6）")
-    ap.add_argument("--keep-low-quality", action="store_true",
-                    help="保留过短/裸 URL 的问句（默认剔除）")
+    ap.add_argument("--min-question-chars", type=int, default=6)
+    ap.add_argument("--keep-low-quality", action="store_true")
     ap.add_argument("--skip-messages", action="store_true",
                     help="只出统计与清单骨架（不取 messages），用于快速试跑")
+    ap.add_argument("--pool-only", action="store_true", help="只刷新主池，不抽档位")
+    ap.add_argument("--no-refresh", action="store_true", help="不刷池，直接从现有池子重抽")
     a = ap.parse_args()
 
     out = os.path.abspath(a.out)
     build_dir = os.path.join(out, "_build")
+    pool_dir = os.path.abspath(a.pool_dir or os.path.join(out, "pool"))
     os.makedirs(build_dir, exist_ok=True)
-    os.makedirs(out, exist_ok=True)
+    os.makedirs(pool_dir, exist_ok=True)
     log = Tee(os.path.join(build_dir, "build_%s.log" % time.strftime("%Y%m%dT%H%M%S")))
 
     models = [m.strip() for m in a.models.split(",") if m.strip()]
@@ -176,69 +176,91 @@ def main():
         "channel": "aime",
     }
     t0 = time.time()
-    log("build_bench v%s  models=%s tiers=%s seed=%s" % (__version__, models, tiers, a.seed))
+    log("build_bench v%s  models=%s tiers=%s seed=%s%s"
+        % (__version__, models, tiers, a.seed,
+           "  [只刷池]" if a.pool_only else ("  [不刷池]" if a.no_refresh else "")))
 
     tax = Taxonomy()
     stats = collections.Counter()
     stats["materialize_missing"] = 0
 
-    log("1/6 扫归因 …")
-    cases = scan_attribution(os.path.abspath(a.attr_root), set(models), stats)
-    log("  归因文件 %d 个，case %d" % (stats["attr_files"], len(cases)))
-
-    cluster_root = os.path.abspath(a.cluster_root or os.path.join(a.attr_root, "cluster"))
-    log("2/6 join 聚类 item_index …")
-    idx, nidx = load_item_index(cluster_root, models)
-    log("  item_index %d 个模型目录，%d 条 problem-叶 映射" % (nidx, len(idx)))
-
-    log("3/6 补 L1/L2/L3 标签 …")
-    resolve_patterns(cases, idx, tax, stats)
-    total_p = stats["join_ok"] + stats["join_miss"]
-    join_rate = round(stats["join_ok"] / total_p, 4) if total_p else 0.0
-    log("  join 命中 %d / %d（%.1f%%）" % (stats["join_ok"], total_p, join_rate * 100))
-
     mat = None
     if not a.skip_messages:
         mat = Materializer(os.path.abspath(a.eval_input), build_dir, log)
 
-    cases = drop_unclassified(cases, stats)
-    log("  剔除 join 失败 case %d 条（任一条 problem 落不到叶）" % stats["join_failed_dropped"])
-
-    log("4/6 补问句 + 去重 …")
-    if mat:
-        backfill_questions(cases, mat, stats)
-        log("  从 eval_input 补回问句 %d 条" % stats["q_backfilled"])
-    pool = dedupe(cases, a.long_tokens, stats, a.min_question_chars, not a.keep_low_quality)
-    log("  去重后 %d（合并同问句 %d；剔除：空问句 %d / 单轮过短 %d / 单轮裸URL %d；"
-        "保留多轮短追问 %d）"
-        % (len(pool), stats["dup_collapsed"], stats["empty_question"],
-           stats["q_too_short"], stats["q_url_only"], stats["q_short_followup_kept"]))
+    log("1/5 主池 …")
+    pool = Pool(pool_dir, models, log)
+    refresh = None
+    if a.no_refresh:
+        pool.load()
+        log("  跳过刷新，直接用现有池子（%d 条）"
+            % sum(len(v) for v in pool.cases.values()))
+    else:
+        refresh = pool.refresh(os.path.abspath(a.attr_root), mat)
 
     manifest = {
         "module": "bench_module", "version": __version__,
         "channel": "aime",
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "params": params,
-        "source": {
-            "attr_root": os.path.basename(os.path.abspath(a.attr_root)),
-            "attr_files": stats["attr_files"],
-            "cluster_item_index_models": nidx,
-            "join_rate": join_rate,
-        },
         "pool": {
-            "cases_raw": stats["cases_raw"],
-            "cases_dedup": stats["cases_dedup"],
-            "dup_collapsed": stats["dup_collapsed"],
-            "empty_question": stats["empty_question"],
+            "dir": os.path.basename(pool_dir),
+            "cases_by_model": {m: len(pool.cases.get(m) or {}) for m in models},
+            "cases": sum(len(v) for v in pool.cases.values()),
+            "last_refresh": pool.state.get("last_refresh", ""),
+            "refresh": refresh,
         },
         "models": {},
     }
+    if a.pool_only:
+        jdump(manifest, os.path.join(pool_dir, "manifest.json"))
+        log("完成（只刷池），耗时 %.1fs，池子 %s：%s"
+            % (time.time() - t0, manifest["pool"]["cases"], pool_dir))
+        log.close()
+        return
+
+    log("2/5 join 聚类 item_index …")
+    cluster_root = os.path.abspath(a.cluster_root or os.path.join(a.attr_root, "cluster"))
+    idx, nidx = load_item_index(cluster_root, models)
+    log("  item_index %d 个模型目录，%d 条 problem-叶 映射" % (nidx, len(idx)))
+
+    log("3/5 补 L1/L2/L3 + 质量闸 …")
+    cases = {}
+    for model in models:
+        for tid, c in (pool.cases.get(model) or {}).items():
+            cases[(model, tid)] = c
+    resolve_patterns(cases, idx, tax, stats)
+    total_p = stats["join_ok"] + stats["join_miss"]
+    join_rate = round(stats["join_ok"] / total_p, 4) if total_p else 0.0
+    log("  join 命中 %d / %d（%.1f%%）" % (stats["join_ok"], total_p, join_rate * 100))
+    cases = drop_unclassified(cases, stats)
+    log("  剔除 join 失败 case %d 条（任一条 problem 落不到叶）"
+        % stats["join_failed_dropped"])
+
+    pool_cases = dedupe(cases, a.long_tokens, stats, a.min_question_chars,
+                        not a.keep_low_quality)
+    log("  可采样 %d 条（合并同问句 %d；剔除：空问句 %d / 单轮过短 %d / 单轮裸URL %d / 缺字段 %d；"
+        "保留多轮短追问 %d）"
+        % (len(pool_cases), stats["dup_collapsed"], stats["empty_question"],
+           stats["q_too_short"], stats["q_url_only"], stats["meta_incomplete_dropped"],
+           stats["q_short_followup_kept"]))
+
+    manifest["source"] = {
+        "attr_root": os.path.basename(os.path.abspath(a.attr_root)),
+        "cluster_item_index_models": nidx,
+        "join_rate": join_rate,
+    }
+    manifest["pool"].update({
+        "usable_cases": len(pool_cases),
+        "dup_collapsed": stats["dup_collapsed"],
+        "empty_question": stats["empty_question"],
+    })
 
     for model in models:
-        pool_m = [c for c in pool if c["model"] == model]
-        base = [c for c in pool_m if not c["long"]]
-        longp = [c for c in pool_m if c["long"]]
-        log("5/6 [%s] 池子 %d（常规 %d / 长上下文 %d）" % (model, len(pool_m), len(base), len(longp)))
+        pool_m = [c for c in pool_cases if c["model"] == model]
+        base = [c for c in pool_m if not (c["total_tokens"] >= a.long_tokens)]
+        longp = [c for c in pool_m if c["total_tokens"] >= a.long_tokens]
+        log("4/5 [%s] 可采样 %d（常规 %d / 长上下文 %d）" % (model, len(pool_m), len(base), len(longp)))
         if not base:
             log("  WARN 该模型没有可用 case，跳过")
             continue
@@ -264,18 +286,17 @@ def main():
             log("  定位 %d 条 trace 的原文 …" % len(wanted))
             missing = mat.ensure(wanted)
             log("  定位失败 %d 条" % len(missing))
-            # 定位成功但行不可解析的也要剔掉；否则"某一档漏了、更大的档里又有"会破坏嵌套
             ok = set(wanted) - missing
             for tid in list(ok):
                 if mat.read(tid) is None:
                     ok.discard(tid)
-            if ok is not None and len(ok) != len(wanted) - len(missing):
+            if len(ok) != len(wanted) - len(missing):
                 log("  原文不可解析 %d 条" % (len(wanted) - len(missing) - len(ok)))
         else:
             ok = None
 
-        def _flt(cases):
-            return [c for c in cases if c["trace_id"] in ok] if ok is not None else cases
+        def _flt(cases, _ok=ok):
+            return [c for c in cases if c["trace_id"] in _ok] if _ok is not None else cases
 
         m_info = {"pool_size": len(pool_m), "base_pool": len(base),
                   "long_pool": len(longp),
@@ -311,19 +332,17 @@ def main():
         "materialize_missing": stats["materialize_missing"],
         "join_rate": join_rate,
         "join_miss_problems": stats["join_miss"],
-        "q_backfilled": stats["q_backfilled"],
+        "join_failed_dropped": stats["join_failed_dropped"],
         "q_too_short_dropped": stats["q_too_short"],
         "q_url_only_dropped": stats["q_url_only"],
-        "q_short_followup_kept": stats["q_short_followup_kept"],
-        "join_failed_dropped": stats["join_failed_dropped"],
         "meta_incomplete_dropped": stats["meta_incomplete_dropped"],
+        "q_short_followup_kept": stats["q_short_followup_kept"],
         "bad_severity": stats["bad_severity"],
     }
     manifest["elapsed_sec"] = round(time.time() - t0, 1)
     jdump(manifest, os.path.join(out, "manifest.json"))
     write_readme(out, manifest, params)
-    log("6/6 完成，用时 %.1fs。产物：%s" % (manifest["elapsed_sec"], out))
-    log("manifest：%s" % os.path.join(out, "manifest.json"))
+    log("5/5 完成，用时 %.1fs。产物：%s" % (manifest["elapsed_sec"], out))
     log.close()
 
 
