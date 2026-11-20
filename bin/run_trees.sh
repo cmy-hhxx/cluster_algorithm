@@ -118,9 +118,13 @@ ROWS=$(python3 bin/discover_trees.py --channel "$CH" \
   --staging "$WORK/_src") || { echo "树发现失败（channel=${CH}，WENCAI_ROOT=${WENCAI_ROOT:-未设}，AIME_ROOT=${AIME_ROOT:-未设}）" >&2; exit 3; }
 
 # case 身份索引：eval_input 148G，全量扫一次十几分钟，不能每轮都做。
-# 规则：缺失 / --rebuild / 超过 TTL（默认 12h）才重建；其余轮次直接用旧索引，
-# 新 trace 查不到身份时 ingest 会退回该条归因自带的 question/session（不影响条目与判定）。
-CASES_TTL_H=${CLUSTER_CASES_TTL_H:-12}
+# 规则：缺失 / 超过 TTL 才重建；其余轮次直接用旧索引，新 trace 查不到身份时 ingest 会退回
+# 该条归因自带的 question/session（不影响条目与判定）。
+# 4.4.13：TTL 12h -> 1h。原因：当天流量傍晚才落 eval_input，12h TTL 会让 19:00-00:42 这段
+# 窗口的新 trace 全部查不到身份（2026-11-20 实测 traces_missing_case 涨到 2598/166k），
+# 而 build_cases_index 是 state 增量重扫，稳态一轮只要 ~30s（实测 4 文件 / 31s），
+# 每轮刷新完全付得起；eval_input 目录结构变动时会退化成全扫（实测 319 文件 / 337s），偶尔一次。
+CASES_TTL_H=${CLUSTER_CASES_TTL_H:-1}
 # 容器内存紧的时候（弗吉尼亚 16 GiB，eval 服务常驻 8 GB+）重建索引会 ENOMEM：
 # 可用内存低于阈值直接跳过，本轮退回"归因自带的 question/session"，不影响条目与判定。
 mem_avail_mb() {
@@ -134,9 +138,14 @@ need_cases=0
 if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
   if [[ ! -f "$CASES_INDEX" ]]; then need_cases=1
   else
-    age_h=$(( ( $(date +%s) - $(stat -c %Y "$CASES_INDEX") ) / 3600 ))
-    echo "case 身份索引已存在（${age_h}h 前，TTL ${CASES_TTL_H}h），本轮直接用；新 trace 退回归因自带 question"
-    (( age_h >= CASES_TTL_H )) && need_cases=1
+    age_s=$(( $(date +%s) - $(stat -c %Y "$CASES_INDEX") ))
+    age_h=$(( age_s / 3600 ))
+    if (( age_s >= CASES_TTL_H * 3600 )); then
+      need_cases=1
+      echo "case 身份索引已 ${age_h}h 未刷新（TTL ${CASES_TTL_H}h），本轮先增量刷新"
+    else
+      echo "case 身份索引 ${age_h}h 前刷新过（TTL ${CASES_TTL_H}h），本轮直接用"
+    fi
   fi
   if (( need_cases )) && [[ "${CLUSTER_CASES_SKIP:-0}" == "1" ]]; then
     echo "  CLUSTER_CASES_SKIP=1：跳过 cases 索引重建"
@@ -150,9 +159,11 @@ if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]
     fi
   fi
   if (( need_cases )); then
-    echo "重建 case 身份索引（eval_input → trace_id，增量重扫）..."
+    echo "刷新 case 身份索引（eval_input → trace_id，state 增量重扫）..."
+    t_idx=$(date +%s)
     python3 bin/build_cases_index.py --channel "$CH" --root "$CASES_ROOT" --out "$CASE_INDEX_ROOT" 2>&1 | sed 's/^/  /' \
       || { echo "WARN cases 索引构建失败：ingest 将退回归因自带的 question/session" >&2; }
+    echo "  索引刷新耗时 $(( $(date +%s) - t_idx ))s"
   fi
 fi
 

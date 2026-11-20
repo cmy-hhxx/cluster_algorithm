@@ -267,3 +267,20 @@ python3 bin/build_case_lists.py --channel aime --attr-root "$AIME_ROOT" --out "$
 - `prune_items.py` 会断言 `assign` 行数 == `items` 行数；不一致直接退出，不会留下半删状态。
 - 身份索引（`cases_<渠道>.jsonl`）不跟着删：它按 TTL 重建，脏 trace 只是查不到新条目，
   不影响已有条目。要立刻反映可在下一轮 `--rebuild` 前重建索引。
+
+## 12. 身份索引刷新节奏（4.4.13）
+
+`cases_<渠道>.jsonl` 是每轮 ingest 的 join 主键（trace_id → question/session/request_time）。
+它由 `build_cases_index.py` 从 `eval_input` 压出来，**state 增量**：只重扫 size/mtime 变过的文件，
+稳态一轮约 30s（实测 187k trace / 4 个变更文件 / 31s）；`eval_input` 目录结构变动时会退化成全扫
+（实测 319 文件 / 337s），属偶发。
+
+规则：索引缺失、或距上次刷新 ≥ `CLUSTER_CASES_TTL_H`（**默认 1h**）时，在树循环之前刷新；
+可用内存 < `CLUSTER_CASES_MIN_MB`（默认 4096）则跳过本轮，ingest 退回归因自带的 question/session。
+
+为什么从 12h 改 1h：当天流量傍晚才落 `eval_input`，12h TTL 会让 19:00 之后的 trace 全部 join 不到身份
+（2026-11-20 实测 `traces_missing_case` 涨到 2598/166k），条目本身和聚类标签不受影响，但 question/session
+保真度和 case 级 badcase/goldencase 归集会吃亏。每轮 30s 换掉这个窗口是划算的。
+
+排查：日志里看 `case 身份索引 Xh 前刷新过` / `刷新 case 身份索引 ... 索引刷新耗时 Ns`；
+`build_case_lists.py` 结束会打印 `traces_missing_case=N`，稳态应接近 0。
