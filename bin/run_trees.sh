@@ -88,25 +88,36 @@ else
 fi
 
 # 网关是外部依赖：没配 / 一个都连不上就别往下走，省得跑到 classify 才炸
+# 网关探活：单次探测不可靠。2026-11-22 13:43 一次瞬时不可达（http_code=000）让整轮 BLOCKED、
+# 白等 2 小时（14:50 手动探活又正常）。改为最多 4 次、每次间隔 15s：一轮本来要跑几分钟到十几分钟，
+# 多等 45 秒换掉「一次抖动废掉一轮」是划算的。真的整段不可达仍返回 3（BLOCKED），语义不变。
+GW_PROBE_ATTEMPTS=${CLUSTER_GW_PROBE_ATTEMPTS:-4}
+GW_PROBE_SLEEP=${CLUSTER_GW_PROBE_SLEEP:-15}
 check_gateways() {
   if [[ -z "${CLUSTER_GATEWAYS:-}" ]]; then
     echo "BLOCKED 没有配置归类网关（CLUSTER_GATEWAYS 为空）：环境装好了也跑不了分类。网关开通后只改 .deploy/env.sh。" >&2
     return 3
   fi
-  local g code hit=0
-  for g in ${CLUSTER_GATEWAYS//,/ }; do
-    [[ -n "$g" ]] || continue
-    code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' \
-      -H "Authorization: Bearer ${EVAL_GATEWAY_API_KEY:-dummy}" \
-      "${g%/}/models" 2>/dev/null || true)
-    echo "  网关 ${g%/}/models -> ${code:-000}"
-    [[ "$code" == "200" ]] && hit=$((hit + 1))
-    [[ "$code" == "401" ]] && echo "    401：网关需要 API key，检查 .deploy/env.sh 的 EVAL_GATEWAY_API_KEY" >&2
+  local g code hit i
+  for ((i = 1; i <= GW_PROBE_ATTEMPTS; i++)); do
+    hit=0
+    for g in ${CLUSTER_GATEWAYS//,/ }; do
+      [[ -n "$g" ]] || continue
+      code=$(curl -s -m 6 -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${EVAL_GATEWAY_API_KEY:-dummy}" \
+        "${g%/}/models" 2>/dev/null || true)
+      echo "  网关 ${g%/}/models -> ${code:-000}（第 ${i}/${GW_PROBE_ATTEMPTS} 次）"
+      [[ "$code" == "200" ]] && hit=$((hit + 1))
+      [[ "$code" == "401" ]] && echo "    401：网关需要 API key，检查 .deploy/env.sh 的 EVAL_GATEWAY_API_KEY" >&2
+    done
+    (( hit > 0 )) && return 0
+    if (( i < GW_PROBE_ATTEMPTS )); then
+      echo "  网关全部不可达（第 ${i}/${GW_PROBE_ATTEMPTS} 次），${GW_PROBE_SLEEP}s 后重试" >&2
+      sleep "$GW_PROBE_SLEEP"
+    fi
   done
-  if (( hit == 0 )); then
-    echo "BLOCKED CLUSTER_GATEWAYS 里没有一个可达：$CLUSTER_GATEWAYS" >&2
-    return 3
-  fi
+  echo "BLOCKED CLUSTER_GATEWAYS 里没有一个可达：$CLUSTER_GATEWAYS" >&2
+  return 3
 }
 
 if [[ $DRY -eq 0 ]]; then check_gateways || exit $?; fi
