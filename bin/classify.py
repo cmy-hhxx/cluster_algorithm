@@ -46,17 +46,31 @@ def opener():
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+GATEWAY_PROBE_ATTEMPTS = int(os.environ.get("CLUSTER_GW_PROBE_ATTEMPTS", "4"))
+
+
+def _probe_gateway(base):
+    req = urllib.request.Request(base + "/models",
+                                 headers={"Authorization": f"Bearer {API_KEY}"})
+    with opener().open(req, timeout=6) as r:
+        return r.status == 200
+
+
 def healthy_gateways():
+    """探活网关。单次探测不可靠：2026-11-22 09:37 一次瞬时失败就把整棵 aime_fast 判死
+    （“没有可用网关”，415 条增量白跑）。改为每网关最多 4 次、退避 1/2/4s，
+    全部失败才返回空——仍然不静默放过，只是不被一次抖动骗到。"""
     out = []
     for base in GATEWAYS:
-        try:
-            req = urllib.request.Request(base + "/models",
-                                         headers={"Authorization": f"Bearer {API_KEY}"})
-            with opener().open(req, timeout=6) as r:
-                if r.status == 200:
+        for i in range(GATEWAY_PROBE_ATTEMPTS):
+            try:
+                if _probe_gateway(base):
                     out.append(base)
-        except Exception:
-            pass
+                    break
+            except Exception:
+                pass
+            if i + 1 < GATEWAY_PROBE_ATTEMPTS:
+                time.sleep(min(2 ** i, 8))
     return out
 
 

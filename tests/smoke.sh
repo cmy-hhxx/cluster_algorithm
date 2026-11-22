@@ -22,4 +22,5 @@ rm -rf "$TMP"
 python3 "$HERE/test_repair.py" | tail -1
 python3 "$HERE/test_session_fill.py" | tail -1
 python3 "$HERE/test_prune.py" | tail -1
+python3 "$HERE/test_gateway_probe.py" | tail -1
 echo "SMOKE OK"

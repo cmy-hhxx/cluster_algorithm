@@ -289,3 +289,10 @@ python3 bin/build_case_lists.py --channel aime --attr-root "$AIME_ROOT" --out "$
 `memory.max - memory.current` —— 后者把页缓存算成占用，容器跑一天后 current 基本顶满 40 GiB，
 可用内存恒显示几十 MB，索引刷新会每轮被跳过。实测同一时刻 current/anon = 32278/21019MB，
 旧算法 34MB、真实可用 19.9GB。
+
+网关探活要重试（4.4.15）：`classify.py` 的 `healthy_gateways()` 起跑前探一次 `/models`，
+原来每网关只探一次（6s 超时），探不到就 `sys.exit("没有可用网关")`，整棵树判失败。
+2026-11-22 09:37 就撞上一次瞬时失败（aime_fast 415 条增量白跑，同一时刻手动连测 3 次都是 200）。
+现在每网关最多 4 次、退避 1/2/4s（`CLUSTER_GW_PROBE_ATTEMPTS`），全部失败才退出。
+排障时先手动 `curl -H "Authorization: Bearer $EVAL_GATEWAY_API_KEY" $CLUSTER_GATEWAYS/models`
+确认网关本身是否真的不可用，再看是不是网络瞬断。
