@@ -1,8 +1,8 @@
 {
- "version": "4.4.16",
+ "version": "4.4.17",
  "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 181 模式；矩阵 67/84 有叶、17 格登记不适用；引用自检通过)",
  "created": "2026-10-28",
- "updated": "2026-11-22",
+ "updated": "2026-11-23",
  "changes": [
   "1.1.0 增加会话主口径、横切标签、syndrome、comp2l1 显式映射",
   "1.2.0 提示词升级为可判定规格：决策顺序、边界裁决表、真实样例、可执行自检、反模式清单",
@@ -40,7 +40,8 @@
   "4.4.13 case 身份索引 TTL 12h -> 1h（CLUSTER_CASES_TTL_H）：当天流量傍晚才落 eval_input，12h TTL 让 19:00 后才到的 trace 全部查不到身份（2026-11-20 实测 traces_missing_case 2598/166k，占 1.6%），这批条目会退回空的归因自带 question/session。build_cases_index 本来就是 state 增量重扫：稳态 31s（4 个变更文件/187k trace），eval_input 目录结构变动时退化为全扫 337s（319 文件）；内存不足仍按 CLUSTER_CASES_MIN_MB 跳过。日志补索引年龄与刷新耗时",
   "4.4.14 修索引刷新的内存闸门：原来用 memory.max - memory.current，页缓存把 current 顶满后可用内存恒为几十 MB，索引刷新每轮都被跳过（4.4.13 上线后第一次触发就撞上：报 34MB，实际可用 19.9GB）。改为只看 anon（memory.stat），页缓存不计；阈值 4096MB 不变",
   "4.4.15 网关探活加重试：healthy_gateways() 原来每个网关只探测一次（6s 超时），2026-11-22 09:37 一次瞬时失败就让 classify 退出「没有可用网关」，aime_fast 整树失败、415 条增量白跑（同一时刻手动 curl 连测 3 次均 200）。改为每网关最多 4 次、退避 1/2/4s（CLUSTER_GW_PROBE_ATTEMPTS 可调），全部失败才返回空；tests/test_gateway_probe.py 3 例并入 smoke",
-  "4.4.16 run_trees 的网关预检也加重试：2026-11-22 13:43 一次瞬时不可达（http_code=000）让整轮 BLOCKED、白等 2 小时（14:50 手动探活正常）。改为最多 4 次、间隔 15s（CLUSTER_GW_PROBE_ATTEMPTS / CLUSTER_GW_PROBE_SLEEP 可调）；真整段不可达仍 return 3（BLOCKED），语义不变。与 4.4.15 的 classify 侧探活重试配套：入口预检和分类前探活都不再被一次抖动骗到"
+  "4.4.16 run_trees 的网关预检也加重试：2026-11-22 13:43 一次瞬时不可达（http_code=000）让整轮 BLOCKED、白等 2 小时（14:50 手动探活正常）。改为最多 4 次、间隔 15s（CLUSTER_GW_PROBE_ATTEMPTS / CLUSTER_GW_PROBE_SLEEP 可调）；真整段不可达仍 return 3（BLOCKED），语义不变。与 4.4.15 的 classify 侧探活重试配套：入口预检和分类前探活都不再被一次抖动骗到",
+  "4.4.17 登记新组件 understand-image-10（图像理解第 10 通道）→ S8 / tool=understand_image / role=planning，与 understand-image-0/1/2 同构；2026-11-22 19:54 起 aime_expert 因该组件未登记连续 8 轮 ingest 失败（积压 11-21/22 两天数据）"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",

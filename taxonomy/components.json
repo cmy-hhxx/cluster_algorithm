@@ -785,6 +785,12 @@
   "role": "planning",
   "stage": "S8"
  },
+ "understand-image-10": {
+  "tool": "understand_image",
+  "label": "understand_image（understand-image-10）",
+  "role": "planning",
+  "stage": "S8"
+ },
  "understand_image": {
   "tool": "understand_image",
   "label": "understand_image（understand_image）",
