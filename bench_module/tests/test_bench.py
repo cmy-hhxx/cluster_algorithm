@@ -325,7 +325,8 @@ class PoolTest(unittest.TestCase):
         before = {r["trace_id"] for r in load(self.pool_path())}
         src = os.path.join(self.attr, "0_daily_eval", "aime_expert",
                            "aime_expert_attribution-2026-09-01.jsonl")
-        rec = json.loads(open(src, encoding="utf-8").readline())
+        with open(src, encoding="utf-8") as fh_src:
+            rec = json.loads(fh_src.readline())
         new = json.loads(json.dumps(rec))
         new["session_meta"]["question"] = "How does the new marginal case work?"
         new["turns"][0]["meta"]["trace_id"] = "zzz_new_0001"

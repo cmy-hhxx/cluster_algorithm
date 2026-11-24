@@ -150,23 +150,20 @@ L4 细分  —— 仅对达标的大叶子下钻（§6）
 
 ## 10. 新工具、新技能怎么进来
 
-不接受“其他/未知”桶。流程是**先登记、再跑**：
+不接受“其他/未知”桶。组件路由分两层：
 
-1. `taxonomy/components.json` 每个工具一行：`原始写法 → {tool, label}`；
-2. `taxonomy/stages.json` 决定它归哪一段（同名工具合并）；
-3. `ingest` 结束时校验：出现表里没有的 component，直接中断并写出 `unregistered.json`；
-4. 人工确认归属后补一行，重跑；确实属于新责任域，就新增一个段并升版本号。
+1. **精确表与模式表**：`taxonomy/components.json` 登记精确写法 `{tool, label, role, stage}`；`taxonomy/component_patterns.json` 按正则承接沙箱一次性脚本（如 `/workdir/*.py`）、图像理解多通道（`understand-image-*`）及 `X 请求生成` 等规律性命名。
+2. **未命中处理**：
+   - **生产原位流水线**（`bin/cluster.py`）：写出 `unregistered.json` 并中断，人工确认责任段后登记重跑，防止新工具静默混入杂项。
+   - **可移植模块**（`cluster_pkg`）：默认开启自适应组件登记，结合 `component_role` 与模型路由判定责任段（`S1`–`S12`），持久化写入树目录的 `taxonomy/` 并留存演进日志。
 
-**为什么不做自动兜底**：兜底会把“新工具坏了”变成“某一段里的杂项”，既看不出是哪个工具，
-也没人认领。宁可中断，也不猜。
+## 11. 演进规则（遇到新失效模式时）
 
-## 11. 演进规则（换数据时）
-
-1. 新数据先按冻结的叶子归类，**不允许现场发明新叶子**。
-2. 归不进去的进 `UNMAPPED`。
-3. `UNMAPPED` 占比 **> 5%** 或出现 ≥30 条同质新现象 → 触发一轮归纳
-   （`prompts/05_drift_induct.md`），产出候补叶子，人工确认后写入 `inventory.json` 并升版本。
-4. 版本号在 `VERSION.json`；树里 `meta.pipeline_version` 会带上它，便于跨批次比较。
+1. 新数据优先按当前分类法叶子归类；模型输出越界 path 时，先走**带合法清单重问**（`PATH_REPAIR`），能收敛到既有叶子的标 `edge` 供复核。
+2. 重问后模型明确返回 `NONE`（确无既有叶子可承接）：
+   - **生产原位流水线**：写入 `logs/missing_leaf_<渠道>.jsonl` 与 `unresolved_*.json` 留痕并阻断当轮交付，由维护者补叶并过 `taxonomy_lint.py` 后重跑。
+   - **可移植模块（`cluster_pkg`）**：默认开启**自适应建叶**，汇总同环节未归类条目归纳互斥新叶（严格挂载在既有 `S1..S12 × M1..M7` 下，禁止“其他/杂项”，排他项指向具体兄弟叶），自动通过 `taxonomy_lint` 零错误校验、刷新 `INV_<L1>.md` 与 `MATRIX.md` 后完成归类，并落盘 `taxonomy_evolution.jsonl`。
+3. 历史已归类条目默认保留原判定（按 `(trace_id, problem_index)` 增量复用），避免跨轮次漂移。
 
 ## 12. 已知边界
 

@@ -1,0 +1,57 @@
+# ==============================================================================
+# cluster_pkg 聚类服务配置文件模板
+# 运行方式：python run_cluster.py -c config.yaml
+# ==============================================================================
+
+# 1. OpenAI-Responses 协议端点配置（必填）
+api:
+  # 支持单个 URL 或列表（多端点自动轮询容灾）；写 .../v1 或 .../v1/responses 均可
+  base_url: "http://10.217.220.51/ai-gateway/v1"
+  # 支持直接填写密钥，或用 ${ENV_VAR} 引用环境变量
+  api_key: "${EVAL_GATEWAY_API_KEY:-dummy}"
+  model: "deepseek-v4.1-flash"
+  reasoning_effort: "none"       # none（快速模式）| low（高精度模式）| omit（模型不支持 reasoning 字段时）
+  timeout: 600
+  max_output_tokens: 32768
+  request_attempts: 8
+
+# 2. 原来的聚类树文件目录（必填）
+# - 若目录中已有历史聚类树（item_index.jsonl / cluster_tree.json），自动增量复用并原位演进分类法；
+# - 若目录为空或尚不存在，自动以模块内置三轴分类法初始化并执行首次构建。
+tree_dir: "./cluster_tree"
+
+# 3. 待聚类的归因数据路径（必填：单个 .jsonl 文件，或含归因 .jsonl 的目录）
+input: "./data/attribution"
+
+# ---- 以下均为可选配置（不填即走默认值） ----
+
+# 可选：另存输出目录（默认留空 = 校验通过后原子更新 tree_dir；若希望只读参考原树并写到新目录可填此项）
+output_dir: ""
+
+# 可选：eval_input 目录或 cases_*.jsonl，按 trace_id 关联补齐原始 question / session_id
+cases: ""
+
+# 可选：自定义初始分类法目录（默认留空，优先使用 tree_dir/taxonomy，首次自动从模块内置分类法拷贝）
+taxonomy_dir: ""
+
+# 运行模式：auto（默认：有基线树走增量，无基线树走全量）| incremental | full | rebuild
+mode: "auto"
+channel: "auto"
+
+cluster:
+  concurrency: 8                 # 并发请求数（1–32）
+  chunk_size: 0                  # 0 = 自动（全量 200 条/片，增量 60 条/片）
+  consensus: 1                   # >1 时多遍投票并用分歧标 edge
+  retries: 3                     # 单片格式校验重试次数
+  path_repair: true              # 越界 path 先附带本环节合法叶清单重问一次
+
+adaptive:
+  enabled: true                  # 总开关：遇到新组件或新失效模式时自适应扩充
+  auto_component: true           # 未登记 component 自动路由到 S1–S12 并落盘
+  auto_leaf: true                # 重问仍判 NONE 的新现象，自动归纳新 L3 叶子并通过 lint 门禁后入库
+  min_leaf_items: 1              # 触发自适应建叶的最小未归类条数
+
+l4:
+  enabled: true                  # 对高影响父叶自动执行 L4 第四层子类下钻
+  leaves: "auto"                 # "auto" = l4_nodes.json 已登记父叶全部启用；"" = 关闭
+  min_items: 1

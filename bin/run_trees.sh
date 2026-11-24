@@ -168,7 +168,8 @@ need_cases=0
 if [[ $DRY -eq 0 && -n "$CASES_ROOT" && -n "$CASES_INDEX" && -d "$CASES_ROOT" ]]; then
   if [[ ! -f "$CASES_INDEX" ]]; then need_cases=1
   else
-    age_s=$(( $(date +%s) - $(stat -c %Y "$CASES_INDEX") ))
+    mtime=$(python3 -c 'import os,sys;print(int(os.path.getmtime(sys.argv[1])))' "$CASES_INDEX")
+    age_s=$(( $(date +%s) - mtime ))
     age_h=$(( age_s / 3600 ))
     if (( age_s >= CASES_TTL_H * 3600 )); then
       need_cases=1
@@ -222,7 +223,7 @@ p, tree, mode, items, delta, elapsed, verify, ver, ch, base, rep, sidf = sys.arg
 row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
        "channel": ch, "tree": tree, "mode": mode, "items": int(items), "delta": int(delta),
        "elapsed_s": int(elapsed), "verify": verify, "version": ver}
-# 本轮这片新增的缺叶候选 / 重问命中数（见 DEPLOY.md §21）
+# 本轮这片新增的缺叶候选 / 重问命中数（见 docs/troubleshooting.md §5）
 if os.path.exists(rep):
     ok = none = 0
     with open(rep, encoding="utf-8") as fh:

@@ -1,40 +1,48 @@
 # 使用教程
 
-> 第一次接触这个仓库从这里开始。想直接跑生产看 [runbook.md](runbook.md)，
-> 想知道现在两棵树什么状态看 [handoff.md](handoff.md)。
+> 第一次接触这个仓库从这里开始。外部项目接入优先用 [`cluster_pkg`](../cluster_pkg/README.md)；
+> 生产运维看 [runbook.md](runbook.md)，弗吉尼亚现状看 [handoff.md](handoff.md)。
 
 ## 0. 输入长什么样
 
-每条归因是一个 JSONL 行，核心结构：
+每条归因是一个 JSONL 行，支持标准多轮归因格式：
 
 ```json
 {"session_meta": {"session_id": "...", "request_time": "..."},
  "turns": [{"meta": {"trace_id": "...", "task": "..."},
-            "problem": "[{\"problem_id\":\"p1\",\"component\":\"finquery 取数服务\",
-                          \"label\":\"...\",\"definition\":\"...\",\"reason\":\"...\"}]"}],
- "session_problem": "[...]"}
+            "problem": [{"problem_id": "p1", "component": "finquery",
+                         "label": "...", "definition": "...", "reason": "...", "severity": "P1"}]}]}
 ```
 
-- 必需字段：`turns[].problem[]` 里的 **component / label / definition**（`reason` 有则更好）。
-- `session_meta.session_id`、`turns[].meta.trace_id` 用于计数与回溯；缺了会归到空串，不影响聚类。
-- 2026-11-11 起身份以 **`trace_id`** 为准；问句/会话 id 优先从 `eval_input` join，
-  归因里没有也能跑，只是清单里少部分身份信息。
+- 必需字段：`component / label / definition`（`reason` 有则更准，`problem` 为数组或 JSON 字符串均可）。
+- 身份主键为 **`trace_id`**；可选传入 `eval_input`（或 `cases_*.jsonl`）按 `trace_id` 补齐 `question` 与 `session_id`。
+- `cluster_pkg` 同时兼容单行扁平问题格式（每行直接含 `trace_id / component / label / definition / reason`）。
 
-## 1. 最短路径
+## 1. 方式一：使用独立模块 `cluster_pkg`（推荐外部项目调用）
 
-模型网关只有内网可达，真正的聚类在服务器上跑；本机只负责发起和看结果。
+无需特定环境、零第三方强依赖。准备一份极简 `config.yaml`：
 
-如果你在 DSH 里，直接说：
+```yaml
+api:
+  base_url: "http://10.217.220.51/ai-gateway/v1"   # OpenAI-Responses 协议端点
+  api_key: "${EVAL_GATEWAY_API_KEY}"
+  model: "deepseek-v4.1-flash"
 
-```text
-把 AIME 这批聚一下
+tree_dir: "./my_cluster_tree"                      # 既有聚类树目录（空目录则自动初始化）
+input: "./data/attribution"                        # 归因文件或目录
 ```
 
-对应动作：弗吉尼亚 `aime_rsi_data` 上 `bin/run_trees.sh`，跑完给 11 个文件和三个数。
-背后是：`run.sh init`（解析+分片）→ `run.sh classify`（直调网关）→ `run.sh finish`
-（聚合+校验+报告）。
+一条命令运行：
 
-## 2. 自己跑（服务器上）
+```bash
+python3 cluster_pkg/run_cluster.py -c config.yaml
+```
+
+- 若 `tree_dir` 已有历史聚类树，自动按 `(trace_id, problem_index)` 增量复用，只对新增条目调用模型；
+- 遇到未登记 `component` 或分类法缺叶（重问判 `NONE`），自动完成责任段路由或归纳新叶，通过分类法自检后写回 `tree_dir/taxonomy/`。
+- 其他 Python 项目也可以直接 `from cluster_pkg import run_cluster` 调用，详见 [`cluster_pkg/README.md`](../cluster_pkg/README.md)。
+
+## 2. 方式二：生产服务器跑批
 
 ```bash
 ssh aime_rsi_data
@@ -42,135 +50,62 @@ cd /mnt/aime_eval_ssd/code/2_cluster_algorithm
 source .deploy/env.sh
 tmux new -s cluster
 
-bin/preflight.sh          # 8 项；有 FAIL 不许跑，只有 BLOCKED 也不许跑
-bin/run_trees.sh          # 本渠道全部树（全量）
-bin/run_trees.sh --incremental --no-full-fallback    # 日常增量
+bin/preflight.sh                                      # 8 项预检；有 FAIL 或 BLOCKED 不开跑
+bin/run_trees.sh --incremental --no-full-fallback     # 日常增量
 bin/run_trees.sh --only aime_fast --incremental       # 只跑一棵
-bin/run_trees.sh --dry-run                            # 只 ingest+chunk
+bin/run_trees.sh --dry-run                            # 只 ingest+chunk，不调模型
 ```
 
-> 守护进程正在跑一轮时不要手动再开；先按 [runbook.md](runbook.md) §6 停掉主循环和看门狗。
+> 守护进程在跑时不要手动并发全量；先按 [runbook.md](runbook.md) §6 停掉看门狗和主循环。
 
-单文件临时跑一棵（调脚本用）：
-
-```bash
-./run_cluster.sh /path/to/attribution.jsonl runs/<批次>/run runs/<批次>/out [会话数] [cases 目录]
-```
-
-手动分步（调试用）：
+手动分步（单批调试用）：
 
 ```bash
-./run.sh init /path/to/attribution.jsonl ./run /path/to/eval_input
-#    → run/items.jsonl  run/locators.jsonl  run/assign/manifest.json
-
+./run.sh init /path/to/attribution.jsonl ./run /path/to/eval_input aime
 ./run.sh classify ./run --concurrency 4 --effort none
-#    → run/assign/<chunk>.out.jsonl  每行 {"seq":1,"path":"S1.M2.1","edge":false}
-
-./run.sh finish ./run ./out <全量会话数>
+./run.sh finish ./run ./out 0
 ```
 
-`finish` 末尾会跑 `verify`，必须看到：
-
-```text
-leaves=<N> total=<M> locator_mismatch=0 errors=0
-```
-
-不是 `errors=0 / locator_mismatch=0` 就**不要交付**；先看 [troubleshooting.md](troubleshooting.md)。
-
-> 并发：AIME 当前 4，问财 12。不要用 24/32 去“提速”——AIME 的托管网关按 key 限流。
+`finish` 内部自动执行 `verify`，必须看到 `locator_mismatch=0 errors=0` 才算有效交付。
 
 ## 3. 输出怎么读
 
-每棵树 11 个文件，在 `<AIME_ROOT>/cluster/<树>/`：
+每棵树产出 **11 个交付文件**（`cluster_pkg` 若无 Pillow/中文字体则额外提供无依赖矢量图 `cluster_matrix.svg`）：
 
 | 文件 | 看什么 |
 |---|---|
-| `cluster_tree.json` | 主产物。每个叶子带 `count / sessions / share / definition / include / exclude / samples` |
-| `cluster_tree.txt` | 开会用的树形打印，带条目数与会话数 |
-| `cluster_brief.md` | 一页纸：最该先修的 3 件事、失效层、可信度。**给业务看这一份** |
-| `cluster_summary.md` | 段分布、机制分布、横切标签、各段 Top 模式 |
-| `cluster_matrix.png` | 环节 × 机制热力图，一眼看出哪段压在哪个机制 |
-| `item_index.jsonl` | 全量索引：`seq → path + trace_id + session_id`，可 join 任何下游 |
-| `syndrome.md` / `syndrome.json` | 会话级组合：哪些机制总是一起出现 |
-| `leaves.tsv` | 叶子明细表，可直接导进表格 |
-| `MANIFEST.json` | 版本、规模、文件校验和 |
-| `verify.json` | 校验结果（必须 `errors=0 / locator_mismatch=0`） |
+| `cluster_brief.md` | 一页纸结论：最该先修的 3 件事、L4 高优子类、失效层、可信度。**给业务看这份** |
+| `cluster_tree.json` / `.txt` | 主产物树（含样本与统计）及终端可读树形图 |
+| `cluster_summary.md` | 段分布、机制分布、横切标签、各段 Top 模式、L4 汇总 |
+| `cluster_matrix.png` | 环节 × 机制热力图 |
+| `item_index.jsonl` | 全量条目索引：`seq → path + trace_id + session_id + component + label` |
+| `syndrome.md` / `.json` | 会话级失效机制组合 |
+| `leaves.tsv` | 叶子明细表，可直接导入表格工具 |
+| `MANIFEST.json` / `verify.json` | 版本指纹与结构自洽校验结果 |
 
 **三个读数纪律**：
+1. 排序看**会话数**，不看条目数——避免“单会话多报错”放大。
+2. `low_sample: true`（条目 <10）只用于定位，不参与排名。
+3. `edge: true` 为边界样本，做排名前优先复核。
 
-1. 看**会话数**，不看条目数——条目数会被“问题多的会话”放大。
-2. `low_sample: true` 的叶子（条目 <10）不参与排名，只用于定位。
-3. `edge: true` 是边界标记，先复核再做排名。
-
-## 4. 召回原始证据
-
-任何一个叶子都能回到原文：
+## 4. 召回原始证据与 L4 下钻
 
 ```bash
-# 看某个叶子的前 5 条
-python3 bin/cluster.py recall --node S1.M2.1 --out ./out
+# 按节点召回样本（支持 L1 / L2 / L3 / L4 任意前缀）
+python3 bin/cluster.py recall --out ./out --node S1.M2.1 --limit 10 --full
 
-# 看全文（definition / reason）
-python3 bin/cluster.py recall --node S3.M3.1 --out ./out --limit 10 --full
-
-# 整个段抽样
-python3 bin/cluster.py recall --node S5 --out ./out --limit 3
+# 对满足准入的高影响叶子执行 L4 第四层下钻
+python3 bin/l4_apply.py --run ./run --leaves S9.M6.4,S3.M3.2 --concurrency 4
+./run.sh finish ./run ./out 0
 ```
 
-输出里会带 `case / trace / session / src_rel / question / component / path`。
-4.4 起不再回放文件行号：拿 **`trace_id`** 去 `eval_input` 查完整 messages，才是唯一可靠坐标。
+拿召回结果里的 **`trace_id`** 回 `eval_input` 即可还原完整对话上下文。
 
-## 5. 遇到新工具 / 新技能
-
-分类法**不接受“未知/其他”桶**，遇到没登记的工具会直接中断：
-
-```text
-未登记 component（已写入 unregistered.json）：new_tool_x
-请先登记到 taxonomy/components.json 并指定所属段，再重跑。
-```
-
-处理三选一：
-
-1. **归到已有段**（最常见）：在 `taxonomy/components.json` 加一行，带 `tool / label / role / stage`；
-   再把工具加进 `taxonomy/stages.json` 对应段的 `components` 列表。
-2. **它属于新的责任域**：新增段（如 `S13`），同步 `inventory.json`、`stages.json`，升 `VERSION.json`。
-3. **先不处理**：把未登记条目从输入剔除，跑其余部分。
-
-登记后重跑 `ingest` + `chunk`，不需要重标已有条目。
-
-## 6. 想再拆细（L4）
-
-满足三条才拆：叶子 ≥300 条、能写出互斥 include/exclude、子类对应不同修复动作。
+## 5. 质量抽检（换领域或大改分类法时）
 
 ```bash
-# 用 prompts/02_l4_induct.md 产出拆分方案
-# 用 prompts/03_l4_assign.md 归类，path 写成 S1.M2.1.1
-python3 bin/cluster.py aggregate --work ./run --out ./out
-```
-
-L4 节点元数据写 `taxonomy/l4_nodes.json`，重跑 `aggregate` 会自动挂到第 4 层。
-2026-11-23 起 AIME 两棵树各有 12 个叶子下钻、42 个子类；新增叶子仍按 §6 三条准入评估。
-
-## 7. 质量抽检（可选，建议换数据时做）
-
-```bash
-# 分层抽 576 条（每叶 ≥3），两份独立标注，提示词见 prompts/04_audit.md
+python3 bin/taxonomy_lint.py
 python3 bin/krippendorff.py audit/a/all.jsonl audit/b/all.jsonl
 ```
 
-判读：**α ≥ 0.75** 合格；0.6–0.75 说明某些叶子定义不够互斥；**< 0.6 的叶子退回重定义**，
-不重标整棵树。历史实测 α=0.918，详见 `audit/REPORT.md`。
-
-## 8. 一页速查
-
-```bash
-./run_cluster.sh <数据> <run> <out> [会话数] [cases]   # 一条命令跑完
-./run.sh init <数据> <run> [cases]                     # 解析+分片
-./run.sh classify <run> --concurrency 4 --effort none  # 归类
-./run.sh finish <run> <out> <会话数>                   # 聚合+校验+报告
-python3 bin/cluster.py recall --node <叶> --out <out> [--full]
-python3 bin/krippendorff.py <a.jsonl> <b.jsonl>
-```
-
-业务主看 `cluster_brief.md`，分析主看 `cluster_tree.json` 与 `cluster_summary.md`；
-完整交付清单见 [handoff.md](handoff.md) §6。
+标准：`taxonomy_lint` 必须 `errors=0`；双盲 **α ≥ 0.75** 合格（历史实测 α=0.918，见 `audit/REPORT.md`）。

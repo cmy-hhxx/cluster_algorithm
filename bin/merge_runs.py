@@ -16,11 +16,6 @@
 import argparse, collections, glob, json, os, sys
 
 
-def load_jsonl(path):
-    with open(path, encoding="utf-8") as fh:
-        return [json.loads(l) for l in fh if l.strip()]
-
-
 def iter_jsonl(path):
     """流式读：baseline 一轮 25 万条 / 1 GB+，全量展开成 dict 会把 16 GiB 容器顶爆。"""
     with open(path, encoding="utf-8") as fh:

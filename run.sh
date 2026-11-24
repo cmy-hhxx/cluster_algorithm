@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 确定性部分。用法：
-#   ./run.sh init     <attribution.jsonl|dir> <run_dir> [cases_dir]   # 解析 + 分片
-#   ./run.sh classify <run_dir> [--concurrency N]                    # 批量归类（直调模型）
-#   ./run.sh merge    <merged_run> <batch_run1> <batch_run2> ...     # 增量：合并多个批次
-#   ./run.sh finish   <run_dir> <out_dir> [sessions_all] [src_dir]   # 聚合 + 校验 + 报告
+# 确定性流水线入口。用法：
+#   ./run.sh init     <attribution.jsonl|dir> <run_dir> [cases_dir] [channel]  # 解析 + 分片
+#   ./run.sh classify <run_dir> [--concurrency N]                              # 批量归类（直调模型）
+#   ./run.sh merge    <merged_run> <batch_run1> <batch_run2> ...               # 增量：合并多个批次
+#   ./run.sh finish   <run_dir> <out_dir> [sessions_all]                       # 聚合 + 校验 + 报告
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 CMD=${1:?usage: run.sh init|classify|finish ...}
@@ -17,7 +17,7 @@ case "$CMD" in
     python3 "$HERE/bin/cluster.py" chunk --work "$RUN" --size 200
     echo
     echo "下一步：./run.sh classify $RUN"
-    echo "完成后：./run.sh finish $RUN <out_dir> <sessions_all> <src_dir>"
+    echo "完成后：./run.sh finish $RUN <out_dir> [sessions_all]"
     ;;
   classify)
     RUN=${1:?run}; shift
@@ -28,9 +28,9 @@ case "$CMD" in
     python3 "$HERE/bin/merge_runs.py" --out "$OUT" "$@"
     ;;
   finish)
-    RUN=${1:?run}; OUT=${2:?out}; SESSIONS_ALL=${3:-0}; SRC=${4:-$RUN}
+    RUN=${1:?run}; OUT=${2:?out}; SESSIONS_ALL=${3:-0}
     python3 "$HERE/bin/cluster.py" aggregate --work "$RUN" --out "$OUT" --sessions-all "$SESSIONS_ALL"
-    python3 "$HERE/bin/cluster.py" verify --work "$RUN" --out "$OUT" --src "$SRC"
+    python3 "$HERE/bin/cluster.py" verify --work "$RUN" --out "$OUT"
     python3 "$HERE/bin/cluster.py" report --out "$OUT"
     python3 "$HERE/bin/cluster.py" chart --out "$OUT"
     python3 "$HERE/bin/cluster.py" syndrome --out "$OUT"

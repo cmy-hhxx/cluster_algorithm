@@ -210,7 +210,7 @@ ls /mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm/taxonomy/inventor
 
 ```text
 [1/8] taxonomy: leaves=181 errors=0 warnings=28
-[2/8] VERSION 4.4.10
+[2/8] VERSION 4.5.0
 [3/8] .deploy/env.sh 存在且可 source
 [4/8] AIME 数据根 / 输入根 / 索引目录 均 OK
 [5/8] http://10.217.220.51/ai-gateway/v1/models -> 200
@@ -254,7 +254,7 @@ python3 bin/prune_items.py --work runs/<树>/run_merged --self-session --dry-run
 python3 bin/prune_items.py --work runs/<树>/run_merged --self-session --reason "上游脏数据 <日期>"
 #    也可以按清单删：--drop-ids /tmp/dirty_case_ids.txt
 # 3) 重新聚合、校验、出报告（不调用模型）
-./run.sh finish runs/<树>/run_merged runs/<树>/out 0 runs/_src/<树>
+./run.sh finish runs/<树>/run_merged runs/<树>/out 0
 # 4) 交付 + 重建 badcase/goldencase
 cp runs/<树>/out/* "$AIME_ROOT/cluster/<树>"/
 python3 bin/build_case_lists.py --channel aime --attr-root "$AIME_ROOT" --out "$CASE_INDEX_ROOT" --cases-root "$CASES_INDEX"

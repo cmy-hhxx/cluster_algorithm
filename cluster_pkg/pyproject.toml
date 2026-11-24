@@ -1,0 +1,19 @@
+[build-system]
+requires = []
+build-backend = "_pep517"
+backend-path = ["."]
+
+[project]
+name = "cluster-pkg"
+version = "4.5.0"
+description = "Zero-dependency portable attribution clustering service (OpenAI-Responses API + adaptive taxonomy)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["PyYAML>=6.0"]
+chart = ["Pillow>=10.0"]
+
+[project.scripts]
+cluster-run = "cluster_pkg.run_cluster:main"

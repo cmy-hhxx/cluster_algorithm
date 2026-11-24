@@ -5,7 +5,7 @@
 
 ## 1. 输入
 
-`{{RUN}}/drift/unmapped.jsonl`（归不进 91 叶的条目，含 `seq/component/label/definition/reason`）
+`{{RUN}}/drift/unmapped.jsonl`（归不进现有分类法叶子的条目，含 `seq/component/label/definition/reason`）
 
 ## 2. 判断分三步
 
@@ -24,7 +24,7 @@
   "verdict": "extend | no_change",
   "reason": "为什么扩 / 为什么不扩",
   "candidates": [
-    {"parent_l2": "Q.M4", "name": "≤14 字", "plain": "一句人话",
+    {"parent_l2": "S3.M4", "name": "≤14 字", "plain": "一句人话",
      "definition": "...", "include": "...", "exclude": "→ 现有哪个叶子",
      "evidence_seqs": [12, 33, 41], "sessions": 7, "share_of_unmapped": 0.31}
   ]
@@ -35,13 +35,13 @@
 
 - 新造 L1 或 L2（机制层与环节层是稳定的，变的是模式层）。
 - 把零散条目包装成"新现象"（<30 条一律 `no_change`，写清原因）。
-- 为了让 `UNMAPPED` 归零而放宽现有叶子的 include。
+- 为了让未归类条目归零而放宽现有叶子的 include。
 
 ## 5. 交付回复（≤6 行）
 
 ```
 verdict=extend/no_change
 clusters: 3 (sizes 140/52/31)
-proposed: Q.M4.x 新增「...」← 挂 Q.M4，排除 Q.M4.1
+proposed: S3.M4.x 新增「...」← 挂 S3.M4，排除 S3.M4.1
 needs: 人工确认后写入 taxonomy/inventory.json 并升版本
 ```

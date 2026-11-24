@@ -75,9 +75,10 @@ def healthy_gateways():
 
 
 def load_rules(l1):
-    body = open(os.path.join(ROOT, "prompts", "01_assign.md"), encoding="utf-8").read()
-    body = body.replace("{{ROOT}}", ROOT).replace("{{L1}}", l1)
-    inv = open(os.path.join(ROOT, "taxonomy", f"INV_{l1}.md"), encoding="utf-8").read()
+    with open(os.path.join(ROOT, "prompts", "01_assign.md"), encoding="utf-8") as fh:
+        body = fh.read().replace("{{ROOT}}", ROOT).replace("{{L1}}", l1)
+    with open(os.path.join(ROOT, "taxonomy", f"INV_{l1}.md"), encoding="utf-8") as fh:
+        inv = fh.read()
     valid = set(re.findall(r"^\| `(" + re.escape(l1) + r"\.[A-Z0-9.]+)` \|", inv, re.M))
     return body, inv, valid
 
@@ -219,8 +220,8 @@ def l1_menu(l1):
     if not _INV:
         with _inv_lock:
             if not _INV:
-                _INV.update(json.load(open(os.path.join(ROOT, "taxonomy", "inventory.json"),
-                                           encoding="utf-8")))
+                with open(os.path.join(ROOT, "taxonomy", "inventory.json"), encoding="utf-8") as fh:
+                    _INV.update(json.load(fh))
     nodes = sorted((n for n in _INV["nodes"] if n["l1"] == l1), key=lambda n: n["id"])
     mechs = sorted({n["l2"] for n in nodes})
     rows = [f"| `{n['id']}` | {n['name']} | {n['l2']} {_INV['l2'][n['l2']]['name']} |"

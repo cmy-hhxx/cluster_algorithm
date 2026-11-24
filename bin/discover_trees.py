@@ -17,9 +17,6 @@
 树名规则：
   问财  wencai_<model>（a_fast → wencai_a_fast；aa-fast-base-search → wencai_aa-fast-base-search）
   AIME  <model>       （aime_fast / aime_expert；日常 + 流失合成一棵）
-
-src_root 是 verify 的回放根：ingest 把 file 记成「父目录名/文件名」，所以 src_root 恒为 src 的
-父目录；AIME 例外——src 是 staging 目录，src_root 就是 staging 目录本身。
 """
 import argparse, glob, os, shutil, sys
 

@@ -41,6 +41,14 @@
    "note": "沙箱脚本（.py/.js/.mjs/.cjs/.ts/.sh/.bash）；2026-11-03 补 .sh，2026-11-11 补 .mjs/.cjs/.ts（AIME Expert 出现 payment-engine/smoke.mjs）"
   },
   {
+   "id": "understand_image_channel",
+   "match": "^understand[-_]image([-_]\\d+)?$",
+   "tool": "understand_image",
+   "label": "图像理解",
+   "stage": "S8",
+   "note": "图像理解各编号通道统一归 S8 能力装载"
+  },
+  {
    "id": "request_generation",
    "match": "请求生成$",
    "tool": "shell",

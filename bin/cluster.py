@@ -88,14 +88,6 @@ def as_list(v):
     return []
 
 
-def sha16(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(1 << 20), b''):
-            h.update(b)
-    return h.hexdigest()[:16]
-
-
 _CMAP = None
 
 
@@ -420,8 +412,9 @@ def cmd_chunk(a):
 # ---------------------------------------------------------------- aggregate
 ITEM_KEYS = ('session_id', 'trace_id', 'case_id', 'component', 'label',
              'definition', 'reason', 'request_time', 'date')
-LOC_KEYS = ('seq', 'case_id', 'bad_case_id', 'user_id', 'session_id', 'trace_id', 'batch_id',
-            'model', 'src_rel', 'question', 'problem_id', 'problem_index', 'severity')
+LOC_KEYS = ('seq', 'date', 'request_time', 'case_id', 'bad_case_id', 'user_id', 'session_id',
+            'trace_id', 'batch_id', 'model', 'src_rel', 'question', 'turn_index',
+            'problem_id', 'problem_index', 'component', 'label', 'severity')
 
 
 def _project(path, keys):
@@ -508,11 +501,6 @@ def cmd_aggregate(a):
                     'include': n.get('include', ''), 'exclude': n.get('exclude', ''), 'components': []}
         return {'name': nid.split('.')[-1], 'plain': '', 'definition': '', 'include': '', 'exclude': '', 'components': []}
 
-    # group by 4 segments
-    tree_paths = collections.defaultdict(list)
-    for p, seqs in by_path.items():
-        tree_paths[p] = seqs
-
     def build_l3(l1, l2, l3):
         kids = {}
         for p, seqs in by_path.items():
@@ -524,7 +512,7 @@ def cmd_aggregate(a):
         node['share'] = round(node['count'] / total, 4)
         node['tags'] = leaf_tags.get(l3, [])
         node['low_sample'] = node['count'] < LOW_SAMPLE
-        node['recall'] = f'python3 bin/cluster.py recall --node {l3} --out .'
+        node['recall'] = f'python3 bin/cluster.py recall --out . --node {l3}'
         node['samples'] = sample(base + [s for v in kids.values() for s in v])
         if kids:
             children = []
@@ -577,6 +565,8 @@ def cmd_aggregate(a):
                  'share': round(v['count'] / total, 4), 'by_l1': dict(v['by_l1'])}
                 for t, v in sorted(tag_roll.items(), key=lambda kv: -kv[1]['count'])]
 
+    all_stages = sorted((k for k in inv['l1'] if k != 'S0'),
+                        key=lambda s: int(s[1:]) if s[1:].isdigit() else 99)
     mech = []
     for m in ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7']:
         sel = [p for p in assign.values() if p.split('.')[1] == m]
@@ -585,7 +575,7 @@ def cmd_aggregate(a):
         mech.append({'mechanism': m, 'name': inv['l2'][m]['name'], 'definition': inv['l2'][m].get('definition', ''), 'count': len(sel),
                      'share': round(len(sel) / total, 4),
                      'sessions': len({items[s]['session_id'] for s, p in assign.items() if p.split('.')[1] == m}),
-                     'by_l1': {k: sum(1 for p in sel if p.startswith(k + '.')) for k in ['S1','S2','S3','S4','S5','S6','S7','S8','S9'] if any(p.startswith(k + '.') for p in sel)}})
+                     'by_l1': {k: sum(1 for p in sel if p.startswith(k + '.')) for k in all_stages if any(p.startswith(k + '.') for p in sel)}})
 
     sessions = {i['session_id'] for i in items.values()}
     tree = {
@@ -610,7 +600,7 @@ def cmd_aggregate(a):
             'tags': '横切标签，一条可多标签，不改变树的互斥性',
             'traceability': {'principle': '每个叶子带 samples，每条带 trace_id + session_id（可回 eval_input 还原现场），不再带行号/绝对路径',
                              'item_index': 'item_index.jsonl',
-                             'recall_tool': 'python3 bin/cluster.py recall --work <work> --node <id>'},
+                             'recall_tool': 'python3 bin/cluster.py recall --out <out_dir> --node <id>'},
         },
         'tree': {'id': 'root', 'name': '归因聚类', 'level': 0, 'count': total, 'share': 1.0,
                  'sessions': len(sessions), 'children': l1_children},
@@ -851,15 +841,31 @@ def cmd_report(a):
 
 
 # ---------------------------------------------------------------- chart
+FONT_CANDIDATES = (
+    '/System/Library/Fonts/Hiragino Sans GB.ttc',
+    '/System/Library/Fonts/PingFang.ttc',
+    '/System/Library/Fonts/STHeiti Light.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+)
+
+
+def _resolve_font(pref):
+    for p in ([pref] if pref else []) + [os.path.join(ROOT, '.deploy', 'fonts', 'wqy-zenhei.ttc')] + list(FONT_CANDIDATES):
+        if p and os.path.exists(p):
+            return p
+    return pref
+
+
 def cmd_chart(a):
     from PIL import Image, ImageDraw, ImageFont
     t = jload(os.path.join(a.out, 'cluster_tree.json'))
     L1S, MECH = t['tree']['children'], ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7']
     MNAME = {k: f"{k} {v['name']}" for k, v in jload(os.path.join(ROOT, 'taxonomy', 'inventory.json'))['l2'].items()}
     mat = {(l1['id'], l2['mechanism']): l2['count'] for l1 in L1S for l2 in l1['children']}
-    vmax = max(mat.values()) or 1
+    vmax = max(mat.values() or [1]) or 1
     import math
-    F = a.font
+    F = _resolve_font(a.font)
     f_t, f_s, f_c, f_r = (ImageFont.truetype(F, s) for s in (26, 15, 16, 15))
     W, H = 1500, 130 + len(L1S) * 68 + 60
     img = Image.new('RGB', (W, H), 'white')
@@ -936,18 +942,17 @@ def cmd_recall(a):
     hits = [r for r in idx if a.node == 'root' or r['path'] == a.node or r['path'].startswith(a.node + '.')]
     hits.sort(key=lambda r: r['seq'])
     print(f"node={a.node} matched={len(hits)} sessions={len({h['session_id'] for h in hits})}")
-    cache = {}
     for r in hits[:a.limit]:
         print('-' * 96)
-        print(f"[{r['seq']}] {r['date']}  batch={r.get('batch_id','')}  {r.get('src_rel','')}")
+        print(f"[{r['seq']}] {r.get('date', '')}  batch={r.get('batch_id','')}  {r.get('src_rel','')}")
         print(f"      case={r['case_id']} trace={r['trace_id']} session={r['session_id']} "
               f"severity={r.get('severity','')}")
         print(f"      question: {(r.get('question') or '')[:200]}")
-        print(f"      component={r['component']}  path={r['path']}  tags={','.join(r.get('tags', []))}")
-        print(f"      label: {r['label']}")
+        print(f"      component={r.get('component', '')}  path={r['path']}  tags={','.join(r.get('tags', []))}")
+        print(f"      label: {r.get('label', '')}")
         if a.full:
-            print(f"      definition: {r['definition'][:1000]}")
-            print(f"      reason: {r['reason'][:1000]}")
+            print(f"      definition: {(r.get('definition') or '')[:1000]}")
+            print(f"      reason: {(r.get('reason') or '')[:1000]}")
 
 
 # ---------------------------------------------------------------- main
@@ -962,9 +967,8 @@ def main():
     p.set_defaults(fn=cmd_chunk)
     p = sub.add_parser('aggregate'); p.add_argument('--work', required=True); p.add_argument('--out', required=True)
     p.add_argument('--sessions-all', type=int, default=0, dest='sessions_all'); p.set_defaults(fn=cmd_aggregate)
-    p = sub.add_parser('verify'); p.add_argument('--work', required=True); p.add_argument('--out', required=True)
-    # --src 4.4 起不再用于文件回放（只认 trace_id/session_id），保留参数避免旧脚本报错
-    p.add_argument('--src', default=''); p.set_defaults(fn=cmd_verify)
+    p = sub.add_parser('verify'); p.add_argument('--work', default=''); p.add_argument('--out', required=True)
+    p.add_argument('--src', default='', help=argparse.SUPPRESS); p.set_defaults(fn=cmd_verify)
     p = sub.add_parser('report'); p.add_argument('--out', required=True); p.set_defaults(fn=cmd_report)
     p = sub.add_parser('chart'); p.add_argument('--out', required=True)
     p.add_argument('--font', default=os.environ.get('CLUSTER_CHART_FONT', '/System/Library/Fonts/Hiragino Sans GB.ttc'))

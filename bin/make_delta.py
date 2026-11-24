@@ -13,14 +13,9 @@
 
 用法：python3 bin/make_delta.py --old runs/<t>/run --new runs/<t>/run_new --out runs/<t>/run_delta
 """
-import argparse, collections, json, os, sys
+import argparse, collections, json, os
 
 KEY = ('trace_id', 'problem_index')
-
-
-def load(path):
-    with open(path, encoding='utf-8') as fh:
-        return [json.loads(l) for l in fh if l.strip()]
 
 
 def iter_items(path):
@@ -29,14 +24,6 @@ def iter_items(path):
         for line in fh:
             if line.strip():
                 yield json.loads(line)
-
-
-def keys(items):
-    return {tuple(str(it.get(k, '')) for k in KEY) for it in items}
-
-
-def keys(items):
-    return {tuple(str(it.get(k, '')) for k in KEY) for it in items}
 
 
 def main():

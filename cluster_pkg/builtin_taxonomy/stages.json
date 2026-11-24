@@ -1,0 +1,112 @@
+{
+ "S1": {
+  "name": "取数规划",
+  "definition": "把问题翻译成结构化取数请求的阶段。含 planner-finquery。失效多为查询项构造错、实体/时点/指标设计错。",
+  "components": [
+   "planner-finquery"
+  ]
+ },
+ "S2": {
+  "name": "检索规划",
+  "definition": "把问题翻译成网页检索请求的阶段。含 planner-search、实体识别。失效多为检索词构造、时效锚点、歧义实体未消解。",
+  "components": [
+   "planner-search",
+   "stock_ner_parse"
+  ]
+ },
+ "S3": {
+  "name": "结构化取数",
+  "definition": "执行结构化取数与 SQL。含 finquery 取数服务。失效多为解析/执行报错、零行、字段丢失、口径错。",
+  "components": [
+   "finquery",
+   "watchlist_manager"
+  ]
+ },
+ "S4": {
+  "name": "本地计算",
+  "definition": "在本地做取数编排、计算与图表。含 shell 代码解释器、持仓查询。失效多为脚本报错、数据占位、产物空白。",
+  "components": [
+   "shell",
+   "query_user_positions",
+   "CodeInterpreter",
+   "shell_poll"
+  ]
+ },
+ "S5": {
+  "name": "网页检索",
+  "definition": "执行外部网页检索与抓取。含 web_search、web_fetch。失效多为召回不相关、时效过期、正文不可用。",
+  "components": [
+   "web_search",
+   "web_fetch"
+  ]
+ },
+ "S6": {
+  "name": "客服知识库",
+  "definition": "客服/帮助中心知识库的检索与答复。含 customer_services。失效多为超时、正文损坏、答非所问、编造入口。",
+  "components": [
+   "customer_services",
+   "CustomerServiceFAQ"
+  ]
+ },
+ "S7": {
+  "name": "记忆",
+  "definition": "用户上下文与记忆的读写。含 aime_memory_read、aime_memory_write、get_user_context。失效多为读错旧记忆、写入无回执。",
+  "components": [
+   "aime_memory_read",
+   "aime_memory_write",
+   "get_user_context"
+  ]
+ },
+ "S8": {
+  "name": "能力装载",
+  "definition": "把外部能力装入上下文：技能文件加载、图像理解。含 view_skill/read_file、understand_image。失效多为加载失败、参数没带上、图像数值算错。",
+  "components": [
+   "view_skill/read_file",
+   "understand_image",
+   "client_action",
+   "understand-image-1",
+   "understand-image-2",
+   "understand-image-3"
+  ]
+ },
+ "S9": {
+  "name": "答案合成",
+  "definition": "把已有材料组织成最终答复：取值、换算、口径、论断、引用、呈现。失效多为编造、口径错、引用错挂、答非所问。",
+  "components": [
+   "答案合成",
+   "中间推理处理",
+   "display"
+  ]
+ },
+ "S10": {
+  "name": "请求生成",
+  "definition": "把计划落成可调用的请求、代码或渲染 spec：定参数、字段、结构、契约。失效多为参数缺失/类型错、字段取近似、工具选错、生成物不可执行。",
+  "components": [
+   "CodeInterpreter",
+   "aime_memory_read",
+   "aime_memory_write",
+   "client_action",
+   "customer_services",
+   "display",
+   "planner-finquery",
+   "planner-search",
+   "shell",
+   "stock_ner_parse",
+   "view_skill/read_file"
+  ]
+ },
+ "S11": {
+  "name": "图表与可视化",
+  "definition": "把数据落成图：选图型、写渲染 spec、执行渲染、挂进正文。失效多为 spec 不合契约、序列缺项、数值/换算错、图没渲染或引用挂不上。",
+  "components": [
+   "display"
+  ]
+ },
+ "S12": {
+  "name": "任务编排",
+  "definition": "决定做几步、按什么顺序、要不要先补前置（技能流程、基期、核对）。不是取数查询设计，也不是检索词构造。",
+  "components": [
+   "任务规划"
+  ]
+ }
+}

@@ -11,7 +11,7 @@
 #   WL_HOST=eval_data  WL_REPO=...  WL_VENV=...  WL_ROOT=...  WL_INDEX=...  WL_GATEWAYS=...  WL_GATEWAY_KEY=...  WL_CONC=12
 #   VA_HOST=aime_rsi_data  VA_REPO=...  VA_VENV=...  VA_ROOT=/mnt/aime_eval_ssd/1_aime/eval_output  VA_INDEX=/mnt/aime_eval_ssd  VA_GATEWAYS=http://10.217.220.51/ai-gateway/v1  VA_GATEWAY_KEY=sk-gw-...  VA_CONC=8
 #
-# 不做的事：不装 Python 依赖、不下载字体（那些是环境初始化，见 DEPLOY.md §6，只做一次）。
+# 不做的事：不装 Python 依赖、不下载字体（那些是环境初始化，见 docs/deploy.md §5，只做一次）。
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$HERE"
@@ -88,12 +88,17 @@ if (( CODE )); then
     --exclude '__pycache__' --exclude 'experiments/cache' --exclude 'logs' \
     ./ "$HOST:$REPO/"
   # rsync 不带 --delete（怕删掉服务器上的 .deploy/runs），下线脚本在这里显式清
-  ssh "$HOST" "rm -f '$REPO/bin/incremental_aime.sh'"
+  ssh "$HOST" "cd '$REPO' && rm -f \
+    deploy.sh run_cluster.sh run_incremental.sh \
+    bin/incremental_aime.sh bin/backfill_case_fields.py bin/build_case_index.py \
+    bin/extend_v4_chart_orchestration.py bin/extend_v4_request_stage.py \
+    bin/make_src_map.py bin/migrate_l1.py bin/migrate_v4_role_axis.py \
+    bin/rebase_paths.py bin/taxonomy_fix.py prompts/01_assign_agent.md"
 fi
 
 echo
 echo "== 渲染 .deploy/env.sh =="
-# 小文件用 ssh 写入而不是 scp：这条链路上 scp 会间歇 Connection closed（DEPLOY.md §7.13）
+# 小文件用 ssh 写入而不是 scp：这条链路上 scp 会间歇 Connection closed
 put() { ssh "$HOST" "cat > '$1'" < "$2"; }
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
@@ -113,7 +118,7 @@ export CASE_INDEX_ROOT="$INDEX"
 export CLUSTER_CONCURRENCY=$CONC
 export CLUSTER_GATEWAYS="$GW"
 export EVAL_GATEWAY_API_KEY=$GWKEY
-# 网关/内网 git 不走公司 squid（DEPLOY.md §5.2）
+# 网关/内网不走公司 squid（docs/troubleshooting.md §3）
 export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.244.192.108,10.217.220.51,localhost,127.0.0.1"
 export no_proxy="\$NO_PROXY"
 EOF

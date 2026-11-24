@@ -12,7 +12,7 @@
   python3 bin/l4_apply.py --run runs/aime_fast/run_merged \
       --leaves S1.M2.1,S3.M3.2 --concurrency 16 [--size 60] [--dry]
 """
-import argparse, concurrent.futures, glob, json, os, re, sys
+import argparse, concurrent.futures, glob, json, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'bin'))
@@ -24,10 +24,6 @@ def iter_jsonl(p):
         for l in fh:
             if l.strip():
                 yield json.loads(l)
-
-
-def read_jsonl(p):
-    return list(iter_jsonl(p))
 
 
 def load_assign(run):
@@ -49,9 +45,7 @@ def plan_text(leaf, l4):
 
 def build_prompt(leaf, subs_table, rows):
     body = open(os.path.join(ROOT, 'prompts', '03_l4_assign.md'), encoding='utf-8').read()
-    body = (body.replace('{{ROOT}}', ROOT).replace('{{LEAF}}', leaf)
-                .replace('{{RUN}}', '<run>').replace('{{CHUNK}}', '<chunk>')
-                .replace('{{N}}', str(len(rows))))
+    body = body.replace('{{LEAF}}', leaf).replace('{{N}}', str(len(rows)))
     payload = {r['seq']: {k: r.get(k, '')[:400] for k in ('component', 'label', 'definition', 'reason')}
                for r in rows}
     return (body + f"\n\n## 本次子类清单（只能从这里选 {leaf}.N）\n\n"

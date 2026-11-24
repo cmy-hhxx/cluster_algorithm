@@ -50,7 +50,7 @@ echo "[3/8] .deploy/env.sh"
 if [[ -f .deploy/env.sh ]]; then
   ( source .deploy/env.sh ) >/dev/null 2>&1 && ok "存在且可 source（渠道 ${CH}）" || bad "存在但 source 失败"
 else
-  bad "缺少 .deploy/env.sh（服务器上按 DEPLOY.md 建；本地没有是正常的）"
+  bad "缺少 .deploy/env.sh（服务器上按 docs/deploy.md 建；本地没有是正常的）"
 fi
 
 echo "[4/8] 渠道与数据根"
