@@ -493,7 +493,8 @@ def cmd_aggregate(a):
     def node_stat(seqs):
         return {'count': len(seqs),
                 'sessions': len({items[s]['session_id'] for s in seqs}),
-                'traces': len({items[s]['trace_id'] for s in seqs})}
+                'traces': len({items[s]['trace_id'] for s in seqs}),
+                'severity': dict(collections.Counter((loc[s].get('severity') or '?') for s in seqs))}
 
     def meta_for(nid):
         if nid in nodes:
@@ -531,6 +532,7 @@ def cmd_aggregate(a):
                 c = {'id': p, 'level': 4, **meta_for(p), **node_stat(seqs)}
                 c['share'] = round(c['count'] / total, 4)
                 c['share_within_l3'] = round(c['count'] / max(1, node['count']), 3)
+                c['low_sample'] = c['count'] < LOW_SAMPLE
                 c['samples'] = sample(seqs, 3)
                 children.append(c)
             node['children'] = children
@@ -718,6 +720,24 @@ def write_brief(t, out):
               f"- **一个真实例子**：{sample.get('label', '')}",
               f"- **该谁修**：{owner}",
               f"- **占全部条目**：{l3['share']:.1%}；同一会话只计 1 次。", '']
+    parent = {}
+    for l1 in root['children']:
+        for l2 in l1['children']:
+            for l3 in l2['children']:
+                parent[l3['id']] = l1['name']
+    subs = [(l3, l4) for l3 in leaves for l4 in l3.get('children', [])]
+    if subs:
+        def _p01(x):
+            sv = x.get('severity') or {}
+            return sv.get('P0', 0) + sv.get('P1', 0)
+        L += ['## 已下钻的子类（按 P0/P1 排序）', '',
+              '> P0/P1 = 最高两档严重度；只列已下钻的叶子，没拆的条目仍计在父叶上。', '']
+        for l3, l4 in sorted(subs, key=lambda x: (-_p01(x[1]), -x[1]['sessions']))[:3]:
+            L += [f"### {l4['name']}（{_p01(l4):,} 个 P0/P1，{l4['sessions']:,} 个会话）", '',
+                  f"- **属于**：{l3['name']}",
+                  f"- **用户会遇到什么**：{l4.get('plain', '') or l4.get('definition', '')}",
+                  f"- **该谁修**：{parent.get(l3['id'], '')}",
+                  f"- **占父叶**：{l4.get('share_within_l3', 0):.1%}", '']
     mech = sorted([dict(r, definition=r.get('definition') or inv['l2'].get(r['mechanism'], {}).get('definition', ''))
                    for r in t['mechanism_rollup']], key=lambda r: -r.get('sessions', 0))
     L += ['## 失效停在哪一层', '',
@@ -786,6 +806,19 @@ def cmd_report(a):
                       key=lambda x: -x['sessions'])[:8]
         for l3 in rows:
             L.append(f"| {l3['id']} | {l3['name']} | {l3['count']:,} | {l3['sessions']:,} | {l3.get('plain','')} |")
+        L += ['']
+    subs = [(l3, l4) for l1 in root['children'] for l2 in l1['children']
+            for l3 in l2['children'] for l4 in l3.get('children', [])]
+    if subs:
+        def _p01(x):
+            sv = x.get('severity') or {}
+            return sv.get('P0', 0) + sv.get('P1', 0)
+        L += ['\n## L4 细分（已下钻；未拆条目仍计在父叶上）\n',
+              '| 父叶 | 子类 | 条目 | 会话 | 占父叶 | P0+P1 | 一句话 |',
+              '|---|---|---|---:|---:|---:|---|']
+        for l3, l4 in sorted(subs, key=lambda x: (-_p01(x[1]), -x[1]['sessions'])):
+            L.append(f"| {l3['id']} {l3['name']} | {l4['id']} {l4['name']} | {l4['count']:,} | "
+                     f"{l4['sessions']:,} | {l4.get('share_within_l3', 0):.1%} | {_p01(l4):,} | {l4.get('plain','')} |")
         L += ['']
     open(os.path.join(a.out, 'cluster_summary.md'), 'w', encoding='utf-8').write('\n'.join(L))
 

@@ -19,15 +19,21 @@ sys.path.insert(0, os.path.join(ROOT, 'bin'))
 import classify as CL  # noqa: E402  复用网关调用与并发逻辑
 
 
-def read_jsonl(p):
+def iter_jsonl(p):
     with open(p, encoding='utf-8') as fh:
-        return [json.loads(l) for l in fh if l.strip()]
+        for l in fh:
+            if l.strip():
+                yield json.loads(l)
+
+
+def read_jsonl(p):
+    return list(iter_jsonl(p))
 
 
 def load_assign(run):
     a = {}
     for f in sorted(glob.glob(os.path.join(run, 'assign', '*.out.jsonl'))):
-        for r in read_jsonl(f):
+        for r in iter_jsonl(f):
             a[r['seq']] = r['path']
     return a
 
@@ -79,26 +85,38 @@ def main():
     ap.add_argument('--leaves', required=True)
     ap.add_argument('--concurrency', type=int, default=16)
     ap.add_argument('--size', type=int, default=60)
+    ap.add_argument('--min', type=int, default=300, help='叶子最少条数（补跑残留时可调低）')
+    ap.add_argument('--force', action='store_true', help='重判已下钻条目（默认保留 zz_l4 里已有的 4 段 path）')
     ap.add_argument('--dry', action='store_true')
     a = ap.parse_args()
 
     l4 = json.load(open(os.path.join(ROOT, 'taxonomy', 'l4_nodes.json'), encoding='utf-8'))
-    items = {r['seq']: r for r in read_jsonl(os.path.join(a.run, 'items.jsonl'))}
+    leaves = [x.strip() for x in a.leaves.split(',') if x.strip()]
     assign = load_assign(a.run)
+    # 只把目标叶子的 items 读进内存：全量 42 万条常驻会吃掉数 GB，容器里没必要。
+    # --force 时把已下钻的 4 段条目也算进来，重判。
+    target_seq = {s for s, p in assign.items()
+                  if p in leaves or (a.force and any(p.startswith(x + '.') for x in leaves))}
+    items = {r['seq']: r for r in iter_jsonl(os.path.join(a.run, 'items.jsonl'))
+             if r['seq'] in target_seq}
     gateways = CL.healthy_gateways()
     if not gateways:
         sys.exit('没有可用网关')
 
     out_path = os.path.join(a.run, 'assign', 'zz_l4.out.jsonl')
+    existing = {}
+    if os.path.exists(out_path) and not a.force:
+        existing = {r['seq']: r for r in iter_jsonl(out_path)}
     results, jobs = [], []
-    for leaf in [x.strip() for x in a.leaves.split(',') if x.strip()]:
+    for leaf in leaves:
         subs = plan_text(leaf, l4)
         if len(subs[0]) < 2:
             print(f'跳过 {leaf}：l4_nodes.json 里子类不足 2 个')
             continue
-        seqs = [s for s, p in assign.items() if p == leaf]
-        if len(seqs) < 300:
-            print(f'跳过 {leaf}：只有 {len(seqs)} 条（未达 L4 准入 300）')
+        seqs = [s for s, p in assign.items()
+                if p == leaf or (a.force and p.startswith(leaf + '.'))]
+        if len(seqs) < a.min:
+            print(f'跳过 {leaf}：只有 {len(seqs)} 条（未达 L4 准入 {a.min}）')
             continue
         for i in range(0, len(seqs), a.size):
             part = [items[s] for s in seqs[i:i + a.size]]
@@ -126,12 +144,16 @@ def main():
             if done % 10 == 0:
                 print(f'  进度 {done}/{len(jobs)} 批')
 
+    merged = dict(existing)          # 增量/重跑时保留上一版已下钻的条目，避免 L4 覆盖逐轮衰减
+    for r in results:
+        merged[r['seq']] = r
     with open(out_path, 'w', encoding='utf-8') as fh:
-        for r in sorted(results, key=lambda x: x['seq']):
-            fh.write(json.dumps({'seq': r['seq'], 'path': r['path'], 'edge': bool(r.get('edge'))},
+        for s in sorted(merged):
+            r = merged[s]
+            fh.write(json.dumps({'seq': s, 'path': r['path'], 'edge': bool(r.get('edge'))},
                                 ensure_ascii=False) + '\n')
-    covered = len({r['seq'] for r in results})
-    print(f'写入 {out_path}：{covered} 条覆盖（{len(results)} 行）')
+    covered = len(merged)
+    print(f'写入 {out_path}：{covered} 条覆盖（本轮新判 {len({r["seq"] for r in results})} 条）')
 
 
 if __name__ == '__main__':

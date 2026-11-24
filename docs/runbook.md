@@ -107,8 +107,8 @@ cat logs/incr_status_aime.json
 
 ```text
 chunks=83/83 items=4748 calls=83 failed=0 elapsed=196s rate=1455 items/min
-items=333811 sessions=59347 L1=12 L3=173 L4=0 edge=5894
-leaves=173 total=333811 locator_mismatch=0 errors=0
+items=423524 sessions=69153 L1=12 L3=174 L4=42 edge=10523
+leaves=204 total=423524 locator_mismatch=0 errors=0
   交付：.../cluster/aime_fast（11 个文件）
 全部完成。
 ```

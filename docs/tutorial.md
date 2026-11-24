@@ -149,7 +149,7 @@ python3 bin/cluster.py aggregate --work ./run --out ./out
 ```
 
 L4 节点元数据写 `taxonomy/l4_nodes.json`，重跑 `aggregate` 会自动挂到第 4 层。
-当前 AIME 没有达标叶子，L4 为空。
+2026-11-23 起 AIME 两棵树各有 12 个叶子下钻、42 个子类；新增叶子仍按 §6 三条准入评估。
 
 ## 7. 质量抽检（可选，建议换数据时做）
 

@@ -57,6 +57,19 @@ while (($#)); do
 done
 CONC=${CONC:-12}
 (( CONC <= 32 )) || { echo "并发上限 32，当前 $CONC" >&2; exit 2; }
+# L4 下钻：默认对已验证的高影响叶子跑；CLUSTER_L4_LEAVES= 可关闭。
+# 增量每轮都要跑，否则新条目永远停在 3 段，L4 占比会逐轮衰减。
+L4_LEAVES=${CLUSTER_L4_LEAVES-S9.M6.4,S3.M3.2,S9.M7.4,S9.M6.1,S9.M5.1,S9.M5.4,S9.M5.2,S9.M5.3,S9.M6.2,S9.M6.3,S9.M2.1,S9.M2.2}
+L4_CONC=${CLUSTER_L4_CONC:-$CONC}
+(( L4_CONC <= 32 )) || { echo "L4 并发上限 32，当前 $L4_CONC" >&2; exit 2; }
+
+run_l4() {  # $1=run 目录
+  [[ -n "$L4_LEAVES" ]] || return 0
+  echo "  L4 下钻：$L4_LEAVES（并发 $L4_CONC）"
+  python3 bin/l4_apply.py --run "$1" --leaves "$L4_LEAVES" \
+    --concurrency "$L4_CONC" --size 60 --min 1 \
+    || echo "  WARN L4 归类未完全成功，本轮保留 3 段路径（不影响交付）" >&2
+}
 
 if [[ -n "$DS" ]]; then
   WENCAI_ROOT=${WENCAI_ROOT:-$DS/0_wencai/eval_output}
@@ -271,6 +284,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
     python3 bin/cluster.py chunk --work "$WORK/$t/run_delta" --size 60
     ./run.sh classify "$WORK/$t/run_delta" --concurrency "$CONC"
     python3 bin/merge_runs.py --out "$WORK/$t/run_next" "$base" "$WORK/$t/run_delta" | tail -1
+    run_l4 "$WORK/$t/run_next"
     mkdir -p "$out"; rm -f "$out/src_map.json"   # out 目录跨轮复用，旧 src_map 不删会被拷进交付
     ./run.sh finish "$WORK/$t/run_next" "$out" 0 "$srcroot"
     rm -rf "$WORK/$t/run_merged"; mv "$WORK/$t/run_next" "$WORK/$t/run_merged"
@@ -297,6 +311,7 @@ run_tree() {  # $1=树名 $2=输入目录 $3=交付目录 $4=src_root
       fi
     fi
     ./run.sh classify "$WORK/$t/run" --concurrency "$CONC" ${REUSE:+--reuse "$REUSE"}
+    run_l4 "$WORK/$t/run"
     mkdir -p "$out"; rm -f "$out/src_map.json"
     ./run.sh finish "$WORK/$t/run" "$out" 0 "$srcroot"
     rm -rf "$WORK/$t/run_merged" "$WORK/$t/run_delta" "$WORK/$t/run_new"
