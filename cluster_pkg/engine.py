@@ -11,12 +11,33 @@ from .adaptive_leaf import induct_and_assign_missing_leaves, resolve_unknown_com
 from .cfg import ClusterConfig
 from .classifier import BatchClassifier
 from .ingestor import load_baseline_from_tree, scan_raw_items
-from .l4_drill import apply_l4_drilldown
+from .l4_drill import apply_l4_drilldown, has_pending_l4
 from .llm_client import ResponsesClient
 from .reporter import aggregate_and_deliver
 from .tax_store import TaxonomyStore
 
-__version__ = "4.5.0"
+__version__ = "4.6.0"
+
+
+def _atomic_publish_staging(staging_dir: str, stage_tax_dir: str, out_dir: str):
+    """将 staging_dir 内的交付物与分类法原子替换至目标 out_dir。"""
+    os.makedirs(out_dir, exist_ok=True)
+    dst_tax = os.path.join(out_dir, "taxonomy")
+    os.makedirs(dst_tax, exist_ok=True)
+    if os.path.isdir(stage_tax_dir):
+        for fn in os.listdir(stage_tax_dir):
+            sp = os.path.join(stage_tax_dir, fn)
+            if os.path.isfile(sp):
+                tmp_dst = os.path.join(dst_tax, fn + ".tmp")
+                shutil.copy2(sp, tmp_dst)
+                os.replace(tmp_dst, os.path.join(dst_tax, fn))
+
+    for fn in os.listdir(staging_dir):
+        sp = os.path.join(staging_dir, fn)
+        if os.path.isfile(sp):
+            tmp_dst = os.path.join(out_dir, fn + ".tmp")
+            shutil.copy2(sp, tmp_dst)
+            os.replace(tmp_dst, os.path.join(out_dir, fn))
 
 
 @contextlib.contextmanager
@@ -167,6 +188,7 @@ class ClusterEngine:
 
                 if (
                     not todo_items
+                    and not has_pending_l4(assignments, tax, self.cfg.l4)
                     and os.path.abspath(self.cfg.tree_dir) == out_dir
                     and os.path.isfile(os.path.join(out_dir, "verify.json"))
                 ):
@@ -250,22 +272,7 @@ class ClusterEngine:
             )
 
             # 10) 原子提交产物到正式 output_dir
-            os.makedirs(out_dir, exist_ok=True)
-            dst_tax = os.path.join(out_dir, "taxonomy")
-            os.makedirs(dst_tax, exist_ok=True)
-            for fn in os.listdir(stage_tax_dir):
-                sp = os.path.join(stage_tax_dir, fn)
-                if os.path.isfile(sp):
-                    tmp_dst = os.path.join(dst_tax, fn + ".tmp")
-                    shutil.copy2(sp, tmp_dst)
-                    os.replace(tmp_dst, os.path.join(dst_tax, fn))
-
-            for fn in os.listdir(staging_dir):
-                sp = os.path.join(staging_dir, fn)
-                if os.path.isfile(sp):
-                    tmp_dst = os.path.join(out_dir, fn + ".tmp")
-                    shutil.copy2(sp, tmp_dst)
-                    os.replace(tmp_dst, os.path.join(out_dir, fn))
+            _atomic_publish_staging(staging_dir, stage_tax_dir, out_dir)
 
             elapsed = round(time.time() - t0, 2)
             self.log(

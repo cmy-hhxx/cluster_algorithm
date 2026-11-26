@@ -5,8 +5,8 @@ backend-path = ["."]
 
 [project]
 name = "cluster-pkg"
-version = "4.5.0"
-description = "Zero-dependency portable attribution clustering service (OpenAI-Responses API + adaptive taxonomy)"
+version = "4.6.0"
+description = "Zero-dependency portable attribution clustering service (OpenAI Responses/Chat API + adaptive taxonomy)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []

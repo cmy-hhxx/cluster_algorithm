@@ -7,13 +7,13 @@ import zipfile
 
 NAME = "cluster_pkg"
 DIST_NAME = "cluster_pkg"
-VERSION = "4.5.0"
+VERSION = "4.6.0"
 DIST_INFO = f"{DIST_NAME}-{VERSION}.dist-info"
 
 METADATA = f"""Metadata-Version: 2.1
 Name: cluster-pkg
 Version: {VERSION}
-Summary: Zero-dependency portable attribution clustering service (OpenAI-Responses API + adaptive taxonomy)
+Summary: Zero-dependency portable attribution clustering service (OpenAI Responses/Chat API + adaptive taxonomy)
 Requires-Python: >=3.9
 """
 

@@ -3,13 +3,15 @@
 # 运行方式：python run_cluster.py -c config.yaml
 # ==============================================================================
 
-# 1. OpenAI-Responses 协议端点配置（必填）
+# 1. OpenAI 协议端点配置（必填，兼容 Responses 与 Chat Completions）
 api:
-  # 支持单个 URL 或列表（多端点自动轮询容灾）；写 .../v1 或 .../v1/responses 均可
-  base_url: "http://10.217.220.51/ai-gateway/v1"
+  # 支持单个 URL 或列表（多端点自动轮询容灾）；写 .../v1、.../v1/responses 或 .../v1/chat/completions 均可
+  base_url: "${CLUSTER_BASE_URL:-https://api.openai.com/v1}"
+  # 协议模式：auto（默认优先 /responses，不支持时自动降级 /chat/completions）| responses | chat_completions
+  protocol: "auto"
   # 支持直接填写密钥，或用 ${ENV_VAR} 引用环境变量
-  api_key: "${EVAL_GATEWAY_API_KEY:-dummy}"
-  model: "deepseek-v4.1-flash"
+  api_key: "${OPENAI_API_KEY}"
+  model: "${CLUSTER_MODEL:-gpt-4.1-mini}"
   reasoning_effort: "none"       # none（快速模式）| low（高精度模式）| omit（模型不支持 reasoning 字段时）
   timeout: 600
   max_output_tokens: 32768

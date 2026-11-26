@@ -27,6 +27,10 @@ class TaxonomyIntegrityTest(unittest.TestCase):
         self.assertIn("errors=0", out)
         _run([sys.executable, "bin/export_matrix.py", "--check"])
 
+    def test_cluster_pkg_sync_and_version_alignment(self):
+        out = _run([sys.executable, "bin/pack_cluster_pkg.py", "--check"])
+        self.assertIn("check OK", out)
+
 
 class PipelineEndToEndTest(unittest.TestCase):
     def setUp(self):

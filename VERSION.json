@@ -1,8 +1,8 @@
 {
- "version": "4.5.0",
+ "version": "4.6.0",
  "taxonomy": "three-axis-v4.1 (12 环节 / 7 机制 / 181 模式 + 42 L4 子类；矩阵 67/84 有叶、17 格登记不适用；引用自检通过)",
  "created": "2026-10-28",
- "updated": "2026-11-24",
+ "updated": "2026-11-26",
  "changes": [
   "1.1.0 增加会话主口径、横切标签、syndrome、comp2l1 显式映射",
   "1.2.0 提示词升级为可判定规格：决策顺序、边界裁决表、真实样例、可执行自检、反模式清单",
@@ -44,7 +44,8 @@
   "4.4.17 登记新组件 understand-image-10（图像理解第 10 通道）→ S8 / tool=understand_image / role=planning，与 understand-image-0/1/2 同构；2026-11-22 19:54 起 aime_expert 因该组件未登记连续 8 轮 ingest 失败（积压 11-21/22 两天数据）",
   "4.4.18 L4 下钻上线：8 个高影响叶子（S9.M5.1/M5.2/M5.3/M5.4/M6.1/M6.4/M7.4、S3.M3.2）共 29 个子类；run_trees 每轮增量补跑 l4_apply；brief/summary 增 L4 rollup（按 P0/P1 排序）；l4_apply 改流式加载、保留已有 zz_l4、支持 --min/--force。fast 33.0% 条目 / 53.9% 的 P0/P1，expert 26.9% / 43.0% 被 L4 覆盖。",
   "4.4.19 L4 第二波：新增 S9.M6.2/M6.3、S9.M2.1/M2.2 四个叶子共 13 个子类；L4 合计 12 叶/42 子类。fast 覆盖 39.1% 条目 / 66.7% 的 P0/P1，expert 33.5% / 58.1%。已知 S9.M2.1.2（母子/分部）全量 edge 37.7%、S9.M2.2.3（问题焦点）15.5%，下一轮复核。",
-  "4.5.0 模块化与代码清洗：清理 13 个历史一次性迁移/回填脚本、旧代理提示词与死代码，修复 item_index 字段投影及 S10–S12 机制汇总；新增零外部依赖可移植模块 cluster_pkg（支持 python run_cluster.py -c config.yaml 与 Python import 调用、OpenAI-Responses 端点配置、既有聚类树目录增量演进、未知组件与新叶自适应创建及自检门禁）"
+  "4.5.0 模块化与代码清洗：清理 13 个历史一次性迁移/回填脚本、旧代理提示词与死代码，修复 item_index 字段投影及 S10–S12 机制汇总；新增零外部依赖可移植模块 cluster_pkg（支持 python run_cluster.py -c config.yaml 与 Python import 调用、OpenAI-Responses 端点配置、既有聚类树目录增量演进、未知组件与新叶自适应创建及自检门禁）",
+  "4.6.0 cluster_pkg 分发就绪升级：新增 OpenAI Chat Completions 协议兼容与自动降级（api.protocol=auto|responses|chat_completions）、既有树脏数据清理 prune_tree/--prune（兼容 L4 4 段路径、零 API 重聚合、备份留痕）、修复无新条目时跳过 l4.force 重跑及 L4 分片对半拆片容错；脱敏示例配置并新增 bin/pack_cluster_pkg.py 一键同步、防漂移自检与打包生成 .whl/.tar.gz 分发产物"
  ],
  "quality": {
   "evaluation": "audit 双盲 576 条；两人一致的 529 条为金标",

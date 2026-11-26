@@ -34,6 +34,7 @@ class ApiConfig:
     endpoints: List[str] = field(default_factory=list)
     api_key: str = ""
     model: str = "deepseek-v4.1-flash"
+    protocol: str = "auto"           # auto | responses | chat_completions
     timeout: int = 600
     max_output_tokens: int = 32768
     reasoning_effort: str = "none"   # none | low | medium | high | omit
@@ -120,11 +121,16 @@ class ClusterConfig:
             or "dummy"
         ).strip()
         model = str(api_raw.get("model") or raw.get("model") or os.environ.get("CLUSTER_MODEL") or "deepseek-v4.1-flash").strip()
+        proto_raw = str(
+            api_raw.get("protocol") or raw.get("protocol") or os.environ.get("CLUSTER_API_PROTOCOL") or "auto"
+        ).strip().lower()
+        protocol = "chat_completions" if proto_raw == "chat" else proto_raw
         temp_raw = api_raw.get("temperature", raw.get("temperature"))
         api = ApiConfig(
             endpoints=endpoints,
             api_key=api_key or "dummy",
             model=model,
+            protocol=protocol,
             timeout=int(api_raw.get("timeout", 600)),
             max_output_tokens=int(api_raw.get("max_output_tokens", 32768)),
             reasoning_effort=str(api_raw.get("reasoning_effort", "none") or "omit").strip(),
@@ -216,4 +222,8 @@ class ClusterConfig:
         if not self.output_dir:
             self.output_dir = self.tree_dir
         if not self.dry_run and not self.api.endpoints:
-            raise ValueError("配置缺少必填项 `api.base_url`（OpenAI-Responses 协议端点）")
+            raise ValueError("配置缺少必填项 `api.base_url`（OpenAI 协议端点）")
+        if self.api.protocol not in ("auto", "responses", "chat_completions"):
+            raise ValueError(
+                f"api.protocol 只能是 auto / responses / chat_completions，收到: {self.api.protocol!r}"
+            )

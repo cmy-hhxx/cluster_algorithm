@@ -4,17 +4,17 @@
 输入：`*attribution*.jsonl`（问题）+ 可选 `eval_input`（身份 / 问句）；
 输出：每棵树 11 个交付文件。
 
-- **独立可移植模块**：[`cluster_pkg/`](cluster_pkg/README.md) 零第三方强依赖，外部项目只需配置 OpenAI-Responses API 端点与既有聚类树目录，一条命令 `python cluster_pkg/run_cluster.py -c config.yaml`（或直接 `import cluster_pkg`）即可运行全量/增量聚类，并支持未知组件与新叶自适应创建。
+- **独立可移植模块**：[`cluster_pkg/`](cluster_pkg/README.md) 零第三方强依赖，外部项目只需配置 OpenAI 协议端点（兼容 Responses / Chat Completions）与既有聚类树目录，一条命令 `python cluster_pkg/run_cluster.py -c config.yaml`（或直接 `import cluster_pkg`）即可运行全量/增量聚类与 `--prune` 脏数据清理，并支持未知组件与新叶自适应创建；运行 `python3 bin/pack_cluster_pkg.py` 一键生成可分发的 `.whl` 与 `.tar.gz`。
 - **双机生产渠道**：AIME 在**弗吉尼亚**（`aime_rsi_data`，`aime_fast` / `aime_expert`），问财在**乌兰察布**（`eval_data`，4 + 6 棵树）；两个渠道不交叉、不合并。
 
-## 当前状态（2026-11-24 CST）
+## 当前状态（2026-11-26 CST）
 
 | 树 | 条目 | 会话 | 叶子 | L4 | 最近一轮 | 校验 |
 |---|---:|---:|---:|---:|---|---|
 | `aime_fast` | 423,524 | 69,153 | 174 | 42 | 22:52 | `err=0 / mismatch=0` |
 | `aime_expert` | 147,314 | 22,358 | 176 | 42 | 22:52 | `err=0 / mismatch=0` |
 
-- 版本 **4.5.0**；基础分类法 **181 叶**（生产树用到 174 / 176），**12 个高影响叶子已下钻到 L4（42 个子类）**。
+- 版本 **4.6.0**；基础分类法 **181 叶**（生产树用到 174 / 176），**12 个高影响叶子已下钻到 L4（42 个子类）**。
 - L4 覆盖：fast 39.1% 条目 / **66.7%** 的 P0/P1；expert 33.5% / **58.1%**。
 - 守护进程每 **2 小时**一轮增量；接手生产先看 **[docs/handoff.md](docs/handoff.md)**。
 

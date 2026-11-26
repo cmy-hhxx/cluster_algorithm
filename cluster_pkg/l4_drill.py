@@ -40,19 +40,10 @@ def _build_l4_prompt(leaf: str, subs_table: str, rows) -> str:
     )
 
 
-def apply_l4_drilldown(
-    items_by_seq: dict,
-    assignments: dict,
-    newly_classified_seqs: set,
-    client: ResponsesClient,
-    tax: TaxonomyStore,
-    cfg: L4Config,
-    concurrency: int,
-    logger,
-):
-    """原地把命中目标父叶的 3 段 path 下钻为 4 段 path（失败分片安全保留原 3 段父叶）。"""
+def _select_l4_jobs(items_by_seq: dict, assignments: dict, tax: TaxonomyStore, cfg: L4Config):
+    """按配置筛选待下钻父叶并切分分片，返回 [(leaf, subs, table, part_items), ...]。"""
     if not cfg.enabled or not cfg.leaves or not tax.l4_nodes:
-        return 0
+        return []
 
     parent_leaves_in_tax = sorted({k.rsplit(".", 1)[0] for k in tax.l4_nodes if k.count(".") == 3})
     if cfg.leaves == "auto":
@@ -69,15 +60,76 @@ def apply_l4_drilldown(
         for s, (p, _e) in assignments.items():
             if cfg.force and (p == leaf or p.startswith(leaf + ".")):
                 seqs.append(s)
-            elif p == leaf and (cfg.force or not newly_classified_seqs or s in newly_classified_seqs or p.count(".") == 2):
+            elif not cfg.force and p == leaf:
                 seqs.append(s)
         seqs.sort()
         if len(seqs) < cfg.min_items:
             continue
         for i in range(0, len(seqs), cfg.chunk_size):
-            part = [items_by_seq[s] for s in seqs[i: i + cfg.chunk_size]]
+            part = [items_by_seq[s] for s in seqs[i: i + cfg.chunk_size]] if items_by_seq else seqs[i: i + cfg.chunk_size]
             jobs.append((leaf, subs, table, part))
+    return jobs
 
+
+def has_pending_l4(assignments: dict, tax: TaxonomyStore, cfg: L4Config) -> bool:
+    """判断当前分配结果中是否存在待执行或待重跑的 L4 下钻任务。"""
+    return bool(_select_l4_jobs({}, assignments, tax, cfg))
+
+
+def _judge_slice(client: ResponsesClient, leaf: str, subs: list, table: str, rows: list, logger, depth: int = 0):
+    """单分片 L4 判定：2 次重试失败后在满足条件时自动对半拆片。"""
+    prompt = _build_l4_prompt(leaf, table, rows)
+    want = {int(r["seq"]) for r in rows}
+    sub_set = set(subs)
+    last_err = ""
+    for _ in range(2):
+        try:
+            raw_rows = parse_jsonl_rows(client.complete_text(prompt))
+            out = []
+            for r in raw_rows:
+                if "seq" not in r or "path" not in r:
+                    continue
+                try:
+                    seq_int = int(r["seq"])
+                except (TypeError, ValueError):
+                    continue
+                r["seq"] = seq_int
+                r["path"] = str(r["path"]).strip().strip("`")
+                out.append(r)
+            got_seqs = [r["seq"] for r in out]
+            if (
+                len(out) == len(want)
+                and len(set(got_seqs)) == len(want)
+                and set(got_seqs) == want
+                and all(r["path"] in sub_set for r in out)
+            ):
+                return out
+            last_err = f"rows={len(out)}/{len(want)}"
+        except Exception as e:
+            last_err = str(e)[:120]
+
+    if depth < 2 and len(rows) >= 20:
+        mid = len(rows) // 2
+        logger(f"  {leaf}: L4 分片对半拆片 {len(rows)} -> {mid}+{len(rows) - mid} ({last_err})")
+        left = _judge_slice(client, leaf, subs, table, rows[:mid], logger, depth + 1)
+        right = _judge_slice(client, leaf, subs, table, rows[mid:], logger, depth + 1)
+        return left + right
+
+    raise RuntimeError(f"{leaf}: {last_err}")
+
+
+def apply_l4_drilldown(
+    items_by_seq: dict,
+    assignments: dict,
+    newly_classified_seqs: set,
+    client: ResponsesClient,
+    tax: TaxonomyStore,
+    cfg: L4Config,
+    concurrency: int,
+    logger,
+):
+    """原地把命中目标父叶的 3 段 path 下钻为 4 段 path（失败分片安全保留原 3 段父叶）。"""
+    jobs = _select_l4_jobs(items_by_seq, assignments, tax, cfg)
     if not jobs:
         return 0
 
@@ -85,21 +137,7 @@ def apply_l4_drilldown(
 
     def judge(job):
         leaf, subs, table, rows = job
-        prompt = _build_l4_prompt(leaf, table, rows)
-        want = {r["seq"] for r in rows}
-        sub_set = set(subs)
-        last_err = ""
-        for _ in range(2):
-            try:
-                out = [r for r in parse_jsonl_rows(client.complete_text(prompt)) if "seq" in r and "path" in r]
-                for r in out:
-                    r["path"] = str(r["path"]).strip().strip("`")
-                if {r["seq"] for r in out} == want and all(r["path"] in sub_set for r in out):
-                    return out
-                last_err = f"rows={len(out)}/{len(want)}"
-            except Exception as e:
-                last_err = str(e)[:120]
-        raise RuntimeError(f"{leaf}: {last_err}")
+        return _judge_slice(client, leaf, subs, table, rows, logger)
 
     updated = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:

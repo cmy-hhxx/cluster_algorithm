@@ -24,12 +24,13 @@
 
 ```yaml
 api:
-  base_url: "http://10.217.220.51/ai-gateway/v1"   # OpenAI-Responses 协议端点
-  api_key: "${EVAL_GATEWAY_API_KEY}"
-  model: "deepseek-v4.1-flash"
+  base_url: "${CLUSTER_BASE_URL:-https://api.openai.com/v1}"  # 兼容 /v1/responses 与 /v1/chat/completions
+  protocol: "auto"
+  api_key: "${OPENAI_API_KEY}"
+  model: "${CLUSTER_MODEL:-gpt-4.1-mini}"
 
-tree_dir: "./my_cluster_tree"                      # 既有聚类树目录（空目录则自动初始化）
-input: "./data/attribution"                        # 归因文件或目录
+tree_dir: "./my_cluster_tree"                                 # 既有聚类树目录（空目录则自动初始化）
+input: "./data/attribution"                                   # 归因文件或目录
 ```
 
 一条命令运行：

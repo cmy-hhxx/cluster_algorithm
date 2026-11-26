@@ -270,7 +270,7 @@ def scan_raw_items(input_path: str, cases_path: str, channel: str, tax: Taxonomy
             rtime = c.get("request_time") or clean(smeta.get("request_time") or rec.get("request_time"))
             batch = c.get("batch_id") or clean(rec.get("batch_id")) or (rtime[:10] if rtime else "")
             model = c.get("model") or clean(rec.get("model")) or model_dir
-            cid = c.get("case_id") or tid
+            cid = c.get("case_id") or clean(rec.get("case_id")) or tid
             bid = bad_case_id(ch, question, rtime)
 
             comp_raw = clean(p.get("component")).strip()

@@ -25,16 +25,26 @@ PARENT_DIR = os.path.dirname(PKG_DIR)
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
-from cluster_pkg import ClusterConfig, TaxonomyStore, run_cluster  # noqa: E402
+from cluster_pkg import ClusterConfig, TaxonomyStore, prune_tree, run_cluster  # noqa: E402
 from cluster_pkg.yaml_lite import load_config_file, parse_yaml_stdlib  # noqa: E402
 
 
 class _MockResponsesServer:
-    """本地线程级 HTTP 服务器，完整实现 OpenAI `/v1/responses` 协议契约。"""
+    """本地线程级 HTTP 服务器，完整实现 OpenAI `/v1/responses` 与 `/v1/chat/completions` 协议契约。"""
 
-    def __init__(self, reject_reasoning_once=False, throttle_once=False):
+    def __init__(
+        self,
+        reject_reasoning_once=False,
+        throttle_once=False,
+        chat_only=False,
+        require_max_completion_tokens=False,
+        fail_large_l4_slice=False,
+    ):
         self.reject_reasoning_once = reject_reasoning_once
         self.throttle_once = throttle_once
+        self.chat_only = chat_only
+        self.require_max_completion_tokens = require_max_completion_tokens
+        self.fail_large_l4_slice = fail_large_l4_slice
         self.requests = []
         self._lock = threading.Lock()
         parent = self
@@ -50,7 +60,9 @@ class _MockResponsesServer:
                     self._send(404, {"error": "not found"})
 
             def do_POST(self):
-                if not self.path.endswith("/responses"):
+                is_resp = self.path.endswith("/responses")
+                is_chat = self.path.endswith("/chat/completions")
+                if not is_resp and not is_chat:
                     self._send(404, {"error": f"bad path {self.path}"})
                     return
                 length = int(self.headers.get("Content-Length", "0"))
@@ -58,7 +70,17 @@ class _MockResponsesServer:
                 auth = self.headers.get("Authorization", "")
                 with parent._lock:
                     parent.requests.append({"path": self.path, "auth": auth, "body": body})
-                    if parent.reject_reasoning_once and "reasoning" in body:
+                    if is_resp and parent.chat_only:
+                        self._send(404, {"error": {"message": "Not found: /responses is not supported"}})
+                        return
+                    if is_chat and parent.require_max_completion_tokens and "max_tokens" in body:
+                        self._send(400, {
+                            "error": {
+                                "message": "Unsupported parameter: 'max_tokens' is not supported. Use 'max_completion_tokens' instead."
+                            }
+                        })
+                        return
+                    if is_resp and parent.reject_reasoning_once and "reasoning" in body:
                         parent.reject_reasoning_once = False
                         self._send(400, {"error": {"message": "Unsupported parameter: reasoning"}})
                         return
@@ -71,17 +93,30 @@ class _MockResponsesServer:
                         self.wfile.write(b'{"error":"rate_limited"}')
                         return
 
-                prompt = body.get("input", "")
-                out_text = parent._dispatch(prompt)
-                self._send(200, {
-                    "id": "resp_mock",
-                    "object": "response",
-                    "output": [{
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{"type": "output_text", "text": out_text}],
-                    }],
-                })
+                if is_resp:
+                    prompt = body.get("input", "")
+                    out_text = parent._dispatch(prompt)
+                    self._send(200, {
+                        "id": "resp_mock",
+                        "object": "response",
+                        "output": [{
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": out_text}],
+                        }],
+                    })
+                else:
+                    msgs = body.get("messages") or []
+                    prompt = "\n".join(str(m.get("content", "")) for m in msgs if isinstance(m, dict))
+                    out_text = parent._dispatch(prompt)
+                    self._send(200, {
+                        "id": "chatcmpl_mock",
+                        "object": "chat.completion",
+                        "choices": [{
+                            "index": 0,
+                            "message": {"role": "assistant", "content": out_text},
+                        }],
+                    })
 
             def _send(self, code, obj):
                 data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -160,6 +195,8 @@ class _MockResponsesServer:
             m = re.search(r"只能从这里选 (S\d+\.M[1-7]\.\d+)\.N", prompt)
             leaf = m.group(1) if m else "S3.M3.2"
             rows = self._extract_input_rows(prompt)
+            if self.fail_large_l4_slice and len(rows) >= 20:
+                return json.dumps({"seq": rows[0]["seq"], "path": f"{leaf}.4", "edge": False})
             return "\n".join(
                 json.dumps({"seq": r["seq"], "path": f"{leaf}.4", "edge": False})
                 for r in rows
@@ -457,6 +494,150 @@ class ClusterPkgEndToEndTest(unittest.TestCase):
 
         r_cli = subprocess.run([vcli, "--help"], cwd=caller_dir, capture_output=True, text=True)
         self.assertEqual(r_cli.returncode, 0, r_cli.stderr)
+
+    def test_chat_completions_auto_fallback_and_explicit_modes(self):
+        """验证 protocol=auto 自动从 /responses 降级 /chat/completions，以及显式 chat_completions 模式。"""
+        with _MockResponsesServer(chat_only=True, require_max_completion_tokens=True) as srv:
+            tree_dir = os.path.join(self.tmp, "chat_tree")
+            res1 = run_cluster({
+                "api": {
+                    "base_url": srv.base_url,
+                    "protocol": "auto",
+                    "api_key": "sk-chat",
+                    "model": "gpt-4.1-mini",
+                    "reasoning_effort": "low",
+                },
+                "l4": {"enabled": False},
+                "tree_dir": tree_dir,
+                "records": [{
+                    "trace_id": "tc1", "session_id": "sc1", "component": "finquery",
+                    "label": "报错", "definition": "SQL 报错", "reason": "syntax error",
+                }],
+            })
+            self.assertEqual(res1["status"], "ok")
+            self.assertEqual(res1["verify"]["errors"], 0)
+            paths = [req["path"] for req in srv.requests]
+            self.assertEqual(paths[0], "/v1/responses")
+            self.assertIn("/v1/chat/completions", paths)
+            # 后续请求不再发送 max_tokens，直接用 max_completion_tokens
+            self.assertIn("max_completion_tokens", srv.requests[-1]["body"])
+            self.assertNotIn("reasoning", srv.requests[-1]["body"])
+
+            # 显式 protocol=chat_completions 与显式 /chat/completions URL 均直连 chat/completions
+            before_n = len(srv.requests)
+            res2 = run_cluster({
+                "api": {
+                    "base_url": f"{srv.base_url}/chat/completions",
+                    "protocol": "auto",
+                    "api_key": "sk-chat",
+                    "model": "gpt-4.1-mini",
+                },
+                "l4": {"enabled": False},
+                "tree_dir": tree_dir,
+                "records": [
+                    {"trace_id": "tc1", "session_id": "sc1", "component": "finquery", "label": "报错", "definition": "SQL 报错"},
+                    {"trace_id": "tc2", "session_id": "sc2", "component": "finquery", "label": "超时", "definition": "查询超时"},
+                ],
+            })
+            self.assertEqual(res2["total_items"], 2)
+            new_paths = [req["path"] for req in srv.requests[before_n:]]
+            self.assertTrue(all(p == "/v1/chat/completions" for p in new_paths))
+
+    def test_prune_tree_api_and_cli(self):
+        """验证 prune_tree 与 CLI --prune 保留 L4 4 段路径、0 API 调重聚合、备份与留痕。"""
+        with _MockResponsesServer() as srv:
+            tree_dir = os.path.join(self.tmp, "prune_tree")
+            res = run_cluster({
+                "api": {"base_url": srv.base_url, "api_key": "sk-test", "model": "mock"},
+                "tree_dir": tree_dir,
+                "records": [
+                    {"trace_id": "t_keep", "case_id": "c_keep", "session_id": "s_keep", "component": "finquery",
+                     "severity": "P0", "label": "保留条目", "definition": "VIP鉴权失败", "reason": "403"},
+                    {"trace_id": "t_self", "case_id": "c_self", "session_id": "t_self", "component": "finquery",
+                     "severity": "P1", "label": "自证会话", "definition": "session_id 缺失兜底", "reason": "none"},
+                    {"trace_id": "t_drop_case", "case_id": "c_drop_case", "session_id": "s_dc", "component": "finquery",
+                     "severity": "P1", "label": "按case删", "definition": "脏数据1", "reason": "bad1"},
+                    {"trace_id": "t_drop_trace", "case_id": "c_keep2", "session_id": "s_dt", "component": "finquery",
+                     "severity": "P2", "label": "按trace删", "definition": "脏数据2", "reason": "bad2"},
+                ],
+            })
+            self.assertEqual(res["total_items"], 4)
+            self.assertEqual(res["l4_updated"], 4)
+            calls_before = len(srv.requests)
+
+            # 1) dry_run 不改动文件
+            dry = prune_tree(tree_dir, drop_ids=["c_drop_case"], self_session=True, dry_run=True)
+            self.assertEqual(dry["status"], "dry_run")
+            self.assertEqual(dry["dropped_items"], 2)
+            self.assertEqual(dry["left_items"], 2)
+
+            # 2) Python API 清理 self_session + case_id
+            p1 = prune_tree(tree_dir, drop_ids=["c_drop_case"], self_session=True, reason="api_prune")
+            self.assertEqual(p1["status"], "ok")
+            self.assertEqual(p1["dropped_items"], 2)
+            self.assertEqual(p1["left_items"], 2)
+            self.assertEqual(p1["verify"]["errors"], 0)
+            self.assertTrue(os.path.isdir(p1["backup"]))
+
+            # 3) CLI --prune 按 trace_id 再删一条，验证无 config 也可独立运行
+            drop_file = os.path.join(self.tmp, "drop_traces.txt")
+            with open(drop_file, "w", encoding="utf-8") as fh:
+                fh.write("t_drop_trace\n")
+            cli = subprocess.run(
+                [sys.executable, os.path.join(PKG_DIR, "run_cluster.py"),
+                 "--prune", "--tree-dir", tree_dir, "--drop-ids", drop_file, "--reason", "cli_prune"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(cli.returncode, 0, f"{cli.stdout}\n{cli.stderr}")
+            self.assertEqual(len(srv.requests), calls_before, "prune 不得发起任何 LLM API 请求")
+
+            with open(os.path.join(tree_dir, "item_index.jsonl"), encoding="utf-8") as fh:
+                left = [json.loads(ln) for ln in fh if ln.strip()]
+            self.assertEqual(len(left), 1)
+            self.assertEqual(left[0]["trace_id"], "t_keep")
+            self.assertEqual(left[0]["path"], "S3.M3.2.4", "prune 必须完整保留已有 L4 4 段路径")
+
+            with open(os.path.join(tree_dir, "prune.jsonl"), encoding="utf-8") as fh:
+                audits = [json.loads(ln) for ln in fh if ln.strip()]
+            self.assertEqual(len(audits), 2)
+
+            # 4) 尝试删空全部条目必须中止且保护原树
+            with self.assertRaises(RuntimeError):
+                prune_tree(tree_dir, drop_ids=["t_keep"], reason="drop_all_should_fail")
+            with open(os.path.join(tree_dir, "item_index.jsonl"), encoding="utf-8") as fh:
+                self.assertEqual(len([ln for ln in fh if ln.strip()]), 1)
+
+    def test_l4_force_on_no_new_items_and_chunk_halving(self):
+        """验证无新增条目时 l4.force=True 不走 noop，且 >=20 条的失败 L4 分片会自动对半拆片成功。"""
+        records = [
+            {"trace_id": f"tl4_{i}", "session_id": f"sl4_{i}", "component": "finquery",
+             "severity": "P1", "label": "取数报错", "definition": f"SQL 错误 #{i}", "reason": "err"}
+            for i in range(22)
+        ]
+        with _MockResponsesServer(fail_large_l4_slice=True) as srv:
+            tree_dir = os.path.join(self.tmp, "l4_halve_tree")
+            # 第 1 轮先关闭 L4，建立 22 条 3 段父叶基线
+            res1 = run_cluster({
+                "api": {"base_url": srv.base_url, "api_key": "sk-test", "model": "mock"},
+                "l4": {"enabled": False},
+                "tree_dir": tree_dir,
+                "records": records,
+            })
+            self.assertEqual(res1["l4_updated"], 0)
+
+            # 第 2 轮输入完全不变，但开启 l4.force=True 且 chunk_size=30：
+            # 必须不走 noop，而是触发 L4 下钻并在 22 条分片失败后对半拆成 11+11 全部升级为 S3.M3.2.4
+            res2 = run_cluster({
+                "api": {"base_url": srv.base_url, "api_key": "sk-test", "model": "mock"},
+                "l4": {"enabled": True, "force": True, "chunk_size": 30},
+                "tree_dir": tree_dir,
+                "records": records,
+            })
+            self.assertEqual(res2["status"], "ok")
+            self.assertEqual(res2["l4_updated"], 22)
+            with open(os.path.join(tree_dir, "item_index.jsonl"), encoding="utf-8") as fh:
+                paths = {json.loads(ln)["path"] for ln in fh if ln.strip()}
+            self.assertEqual(paths, {"S3.M3.2.4"})
 
 
 if __name__ == "__main__":

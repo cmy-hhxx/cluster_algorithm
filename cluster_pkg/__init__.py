@@ -8,6 +8,7 @@ Python 调用示例：
 """
 from .cfg import AdaptiveConfig, ApiConfig, ClusterConfig, ClusterParams, L4Config
 from .engine import ClusterEngine, __version__, run_cluster
+from .pruner import prune_tree
 from .tax_store import TaxonomyStore
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "ClusterEngine",
     "TaxonomyStore",
     "run_cluster",
+    "prune_tree",
 ]

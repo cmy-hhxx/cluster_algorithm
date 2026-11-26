@@ -2,10 +2,10 @@
 
 将「失败 / 流失归因」条目聚成**可下钻、可回溯、可增量演进**的三轴四层聚类树。
 
-- **零运行环境依赖**：纯 Python ≥ 3.9 标准库即可运行（内置轻量 YAML 解析器、HTTP Responses 客户端与 SVG 矢量热力图渲染；若环境装有 `PyYAML` 或 `Pillow` 会自动启用，不装也能完整交付）。
-- **开箱自包含**：内置完整三轴分类法（12 环节 × 7 机制 × 181 叶 + 42 个 L4 子类）与提示词规格，直接复制 `cluster_pkg/` 目录到任何项目即可独立使用。
+- **零运行环境依赖**：纯 Python ≥ 3.9 标准库即可运行（内置轻量 YAML 解析器、Responses / Chat Completions 双协议客户端与 SVG 矢量热力图渲染；若环境装有 `PyYAML` 或 `Pillow` 会自动启用，不装也能完整交付）。
+- **开箱自包含**：内置完整三轴分类法（12 环节 × 7 机制 × 181 叶 + 42 个 L4 子类）与提示词规格，支持直接复制 `cluster_pkg/`、解压独立归档包或离线 `pip install` 使用。
 - **自适应创建新组件与新叶**：遇到未登记的 `component` 自动路由责任段（`S1`–`S12`）；遇到现有叶子均无法覆盖的新失效模式自动归纳互斥新 L3 叶子，强制通过 `taxonomy_lint` 零错误自检门禁后持久化写回聚类树目录。
-- **原子安全增量**：传入原来的聚类树目录（`tree_dir`），自动按 `(trace_id, problem_index)` 复用历史判定，仅对新增条目调用模型；全部产物先在临时目录通过 `verify`（`errors=0, locator_mismatch=0`）后再原子替换目标目录。
+- **原子安全增量与脏数据清理**：传入原来的聚类树目录（`tree_dir`），自动按 `(trace_id, problem_index)` 复用历史判定，仅对新增条目调用模型；支持 `--prune` 按清单或 `self-session` 清理脏数据并零 API 重聚合；全部产物先在临时目录通过 `verify`（`errors=0, locator_mismatch=0`）后再原子替换目标目录。
 
 ---
 
@@ -13,16 +13,17 @@
 
 ### 1.1 编写配置文件 `config.yaml`
 
-最少只需要 **3 项**：OpenAI-Responses API 端点、原来的聚类树目录、待聚类的归因输入路径（相对路径默认相对于 `config.yaml` 所在目录解析）：
+最少只需要 **3 项**：OpenAI 协议 API 端点（兼容 `/v1/responses` 与 `/v1/chat/completions`）、原来的聚类树目录、待聚类的归因输入路径（相对路径默认相对于 `config.yaml` 所在目录解析）：
 
 ```yaml
 api:
-  base_url: "http://10.217.220.51/ai-gateway/v1"   # 支持 .../v1 或 .../v1/responses，也支持端点列表
-  api_key: "${EVAL_GATEWAY_API_KEY}"               # 支持直填或 ${ENV_VAR} / ${ENV_VAR:-default}
-  model: "deepseek-v4.1-flash"
+  base_url: "${CLUSTER_BASE_URL:-https://api.openai.com/v1}"  # 支持 .../v1、.../v1/responses 或 .../v1/chat/completions
+  protocol: "auto"                                            # auto（默认优先 responses，自动降级 chat_completions）
+  api_key: "${OPENAI_API_KEY}"                                # 支持直填或 ${ENV_VAR} / ${ENV_VAR:-default}
+  model: "${CLUSTER_MODEL:-gpt-4.1-mini}"
 
-tree_dir: "./cluster_tree"                         # 既有聚类树目录（首次运行为空或不存在则自动初始化）
-input: "./data/attribution"                        # 单个 .jsonl 文件或包含归因 .jsonl 的目录
+tree_dir: "./cluster_tree"                                    # 既有聚类树目录（首次运行为空或不存在则自动初始化）
+input: "./data/attribution"                                   # 单个 .jsonl 文件或包含归因 .jsonl 的目录
 ```
 
 完整可选参数见同目录下的 [`config.example.yaml`](config.example.yaml)。
@@ -43,7 +44,14 @@ python -m cluster_pkg -c config.yaml
 按节点召回原始证据样本：
 
 ```bash
-python /path/to/cluster_pkg/run_cluster.py -c config.yaml --recall S9.M6.4 --limit 5
+python /path/to/cluster_pkg/run_cluster.py --tree-dir ./cluster_tree --recall S9.M6.4 --limit 5
+```
+
+清理既有聚类树中的脏数据（零 API 调用，保留既有 L4 路径并留痕备份）：
+
+```bash
+python /path/to/cluster_pkg/run_cluster.py --prune --tree-dir ./cluster_tree \
+  --drop-ids dirty_cases.txt --self-session --reason "剔除上游回滚批次"
 ```
 
 ---
@@ -52,11 +60,11 @@ python /path/to/cluster_pkg/run_cluster.py -c config.yaml --recall S9.M6.4 --lim
 
 第三方项目支持以下**全部接入方式**（无需联网、无需安装 `setuptools`/`wheel`）：
 
-- **直接复制目录或加入 `PYTHONPATH`**（零安装）：把 `cluster_pkg/` 拷入业务仓库，或 `export PYTHONPATH=/path/to/cluster_algorithm`；
-- **离线 `pip install`**（内置纯标准库 PEP 517 后端）：`pip install --no-index --no-build-isolation /path/to/cluster_pkg`（安装后额外获得全局命令 `cluster-run -c config.yaml`）。
+- **解压分发包或直接复制目录 / 加入 `PYTHONPATH`**（零安装）：解压 `cluster_pkg-<ver>.tar.gz` 或把 `cluster_pkg/` 拷入业务仓库，或 `export PYTHONPATH=/path/to/cluster_algorithm`；
+- **离线 `pip install`**（内置纯标准库 PEP 517 后端）：`pip install --no-index --no-build-isolation /path/to/cluster_pkg-<ver>-py3-none-any.whl`（或直接指向 `cluster_pkg/` 目录，安装后额外获得全局命令 `cluster-run -c config.yaml`）。
 
 ```python
-from cluster_pkg import run_cluster
+from cluster_pkg import prune_tree, run_cluster
 
 # 方式 1：直接传配置文件路径
 result = run_cluster("config.yaml")
@@ -65,6 +73,7 @@ result = run_cluster("config.yaml")
 result = run_cluster({
     "api": {
         "base_url": "https://api.openai.com/v1",
+        "protocol": "auto",
         "api_key": "${OPENAI_API_KEY}",
         "model": "gpt-4.1-mini",
     },
@@ -74,13 +83,16 @@ result = run_cluster({
 
 # 方式 3：直接传入内存中的归因字典列表 records（无需落地输入文件）
 result = run_cluster({
-    "api": {"base_url": "http://10.217.220.51/ai-gateway/v1", "api_key": "sk-...", "model": "deepseek-v4.1-flash"},
+    "api": {"base_url": "https://api.openai.com/v1", "api_key": "${OPENAI_API_KEY}", "model": "gpt-4.1-mini"},
     "tree_dir": "./my_cluster_tree",
     "records": [
         {"trace_id": "t1", "session_id": "s1", "component": "finquery", "severity": "P1",
          "label": "SQL报错", "definition": "表名不存在", "reason": "unknown table"}
     ],
 })
+
+# 方式 4：对既有聚类树按 case_id / trace_id 清单清理脏数据（零 API 调用）
+prune_res = prune_tree("./my_cluster_tree", drop_ids=["t_bad"], self_session=True, reason="清理测试脏数据")
 
 print(result["total_items"], result["created_leaves"])
 ```
