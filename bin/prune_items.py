@@ -48,8 +48,15 @@ def stream(path, dropped_seqs, counter, sel):
 
 
 def filter_assign(work, dropped_seqs, counter):
-    """assign/*.out.jsonl 与 items 必须一一对应，删掉被删条目的判定行。"""
+    """删掉 assign/ 里被删条目的判定行，返回 (文件数, 总保留数, 总删除数, {文件名: 保留数})。
+
+    L4 上线后 assign/ 不再只有一个文件：merged.out.jsonl 与 items 一一对应，
+    zz_l4.out.jsonl 只覆盖 L4 涉及的条目（items 的子集）。所以"assign 行数 == items 行数"
+    只对主文件成立；其余文件只需保证不残留被删的 seq。旧版把两个文件加总算 keep，
+    在有 zz_l4 的树上必然报不一致（2026-11-26 r533 剔除时命中过）。
+    """
     n_files = n_keep = n_drop = 0
+    per_file = {}
     adir = os.path.join(work, 'assign')
     for name in sorted(os.listdir(adir)) if os.path.isdir(adir) else []:
         if not name.endswith('.out.jsonl'):
@@ -72,7 +79,8 @@ def filter_assign(work, dropped_seqs, counter):
         n_files += 1
         n_keep += k
         n_drop += dr
-    return n_files, n_keep, n_drop
+        per_file[name] = k
+    return n_files, n_keep, n_drop, per_file
 
 
 def main():
@@ -130,10 +138,16 @@ def main():
     # items 与 locators 用同一判据（locators 同样带 case_id / session_id / trace_id）
     n_items, n_drop = stream(items_p, seqs, counter, sel)
     n_loc_keep, n_loc_drop = stream(loc_p, set(), collections.Counter(), sel)
-    n_files, n_as_keep, n_as_drop = filter_assign(a.work, seqs, counter)
+    n_files, n_as_keep, n_as_drop, per_file = filter_assign(a.work, seqs, counter)
 
-    if n_items != n_as_keep:
-        sys.exit(f'不一致：items 剩 {n_items}，assign 剩 {n_as_keep}（备份在 {bdir}，请人工核查）')
+    # 主文件（merged.out.jsonl）必须与 items 一一对应；zz_l4.out.jsonl 这类附加文件是子集，
+    # 只校验"没有残留被删 seq"（filter_assign 已保证）与"不超过 items 数"。
+    primary = 'merged.out.jsonl' if 'merged.out.jsonl' in per_file else (sorted(per_file)[0] if per_file else None)
+    if primary and per_file[primary] != n_items:
+        sys.exit(f'不一致：items 剩 {n_items}，{primary} 剩 {per_file[primary]}（备份在 {bdir}，请人工核查）')
+    for name, k in per_file.items():
+        if name != primary and k > n_items:
+            sys.exit(f'不一致：附加文件 {name} 剩 {k} 条，多于 items {n_items}（备份在 {bdir}）')
     if n_loc_drop != n_drop:
         sys.exit(f'不一致：items 删 {n_drop}，locators 删 {n_loc_drop}（备份在 {bdir}）')
 
@@ -144,7 +158,8 @@ def main():
            'by': dict(counter), 'assign_files': n_files, 'backup': bdir}
     with open(os.path.join(a.work, 'prune.jsonl'), 'a', encoding='utf-8') as fh:
         fh.write(json.dumps(rec, ensure_ascii=False) + '\n')
-    print(f'已删 {n_drop} 条，剩 {n_items} 条（locators {n_loc_keep}，assign {n_as_keep}，{n_files} 个文件）')
+    per_txt = '，'.join(f'{k}={v}' for k, v in sorted(per_file.items())) or '无'
+    print(f'已删 {n_drop} 条，剩 {n_items} 条（locators {n_loc_keep}，assign {n_files} 个文件：{per_txt}）')
     print(f'备份：{bdir}')
     print(f'留痕：{os.path.join(a.work, "prune.jsonl")}')
     return 0
