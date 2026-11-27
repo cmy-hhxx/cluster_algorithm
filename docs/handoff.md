@@ -66,16 +66,20 @@ tmux: cluster-watch-aime  bin/watch_daemon.sh aime
         └─ 每 300s 检查 cluster-incr-aime，缺失即拉起
 ```
 
-**停 / 起（先停看门狗，再停主循环）：**
+**停 / 起（维护期先放暂停标记，避免 `eval_supervisor.sh` 30s 内自动自愈拉回）：**
 
 ```bash
+# 停（维护期间）
+touch runs/.daemon_pause
 tmux kill-session -t cluster-watch-aime
 tmux kill-session -t cluster-incr-aime
-# 起
-cd /mnt/aime_eval_ssd/code/2_cluster_algorithm && source .deploy/env.sh
-tmux new -d -s cluster-incr-aime  "cd $PWD && bin/channel_daemon.sh aime >> logs/incremental-aime.log 2>&1"
-tmux new -d -s cluster-watch-aime "cd $PWD && bin/watch_daemon.sh aime >> logs/watchdog-aime.log 2>&1"
+
+# 恢复（或一键自愈：自动补齐 /opt/cluster-venv + tzdata + 双守护）
+rm -f runs/.daemon_pause
+bash bin/ensure_aime_pg_daemon.sh
 ```
+
+> 容器重建自愈：`/opt/eval_supervisor.sh`（已同步备份至 `/mnt/aime_eval_ssd/.service_backup/` 与快照）每 30 秒巡检，若检测到 `/opt/cluster-venv` 或聚类 tmux 会话缺失且无 `runs/.daemon_pause`，在 `5003` 就绪后自动调用 `bin/ensure_aime_pg_daemon.sh` 恢复环境与双守护。
 
 ## 5. 交付物（每棵树 10 件）
 

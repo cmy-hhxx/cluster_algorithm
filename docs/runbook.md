@@ -97,18 +97,20 @@ python3 bin/pg_cluster.py status
 3. `pg_cluster.py status` 显示 `5003 health: ok=True`，两模型 `unclustered` 维持低位或归零，`current` 指向最新日快照；
 4. `/mnt/aime_eval_ssd/1_aime/cluster_tree/<model>/current/verify.json` 满足 `errors=0`、`locator_mismatch=0`。
 
-## 5. 停 / 起守护
+## 5. 停 / 起守护与容器重建自愈
 
 ```bash
-# 停（先看门狗，后主循环）
+# 维护期暂停（必须先放 runs/.daemon_pause，否则 eval_supervisor.sh 30s 内会自动拉起）
+touch runs/.daemon_pause
 tmux kill-session -t cluster-watch-aime
 tmux kill-session -t cluster-incr-aime
 
-# 起（先主循环，后看门狗；间隔自动读 .deploy/env.sh 的 CLUSTER_INTERVAL=900）
-cd /mnt/aime_eval_ssd/code/2_cluster_algorithm && source .deploy/env.sh
-tmux new -d -s cluster-incr-aime  "cd $PWD && bin/channel_daemon.sh aime >> logs/incremental-aime.log 2>&1"
-tmux new -d -s cluster-watch-aime "cd $PWD && bin/watch_daemon.sh aime >> logs/watchdog-aime.log 2>&1"
+# 恢复（幂等一键补齐 /opt/cluster-venv + tzdata + 双守护）
+rm -f runs/.daemon_pause
+bash bin/ensure_aime_pg_daemon.sh
 ```
+
+- **容器重建全自动自愈**：`eval_supervisor.sh` 启动后会在 `5003` 健康就绪时自动触发 `bin/ensure_aime_pg_daemon.sh`，无需人工重建 `/opt/cluster-venv` 或手动拉 `tmux`（日志在 `logs/ensure-aime.log`）。
 
 ## 6. 变更与回滚
 
