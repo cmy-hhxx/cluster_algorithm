@@ -7,7 +7,7 @@ import zipfile
 
 NAME = "cluster_pkg"
 DIST_NAME = "cluster_pkg"
-VERSION = "4.6.0"
+VERSION = "4.7.0"
 DIST_INFO = f"{DIST_NAME}-{VERSION}.dist-info"
 
 METADATA = f"""Metadata-Version: 2.1

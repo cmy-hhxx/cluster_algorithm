@@ -1,166 +1,116 @@
-# 运行手册（AIME / 弗吉尼亚）
+# 运行手册（AIME / 弗吉尼亚｜PG 16 原生版）
 
-> 收到「跑一下 AIME」时按本文执行。部署与换容器看 [deploy.md](deploy.md)，
-> 异常排查看 [troubleshooting.md](troubleshooting.md)，现状与路径看 [handoff.md](handoff.md)。
+> 收到「跑一下 AIME / 查一下聚类」时按本文执行。架构现状见 [handoff.md](handoff.md)，异常排查见 [troubleshooting.md](troubleshooting.md)。
 
 ## 0. 固定前提
 
 | 项 | 值 |
 |---|---|
-| 渠道 | `aime`（由服务器 `.deploy/env.sh` 固定） |
+| 渠道 / 后端 | `aime` / `pg`（由 `.deploy/env.sh` 固定） |
 | 机器 | 弗吉尼亚 `aime_rsi_data` |
 | 代码目录 | `/mnt/aime_eval_ssd/code/2_cluster_algorithm` |
-| 数据根 | `/mnt/aime_eval_ssd/1_aime/eval_output` |
-| 树 | `aime_fast` / `aime_expert`（自动发现，不用手填） |
-| 并发 | **4** |
-| 分片 | 全量 200 条/片；增量 60 条/片（都按环节分组） |
-| 自动节奏 | 每 7200 秒一轮增量（守护进程） |
+| 数据根 | `/mnt/aime_eval_ssd/1_aime`（PG `127.0.0.1:5432/aime_eval` + 多帧 Zstd） |
+| 写入接口 | `http://127.0.0.1:5003/api/v1/data-core/clusters/bind` |
+| 模型 | `aime_fast`、`aime_expert` |
+| 并发 / 节奏 | 并发 **4**；守护每 **900 秒（15 分钟）**增量回填 + 每日 **CST 04:00** 自动发版 |
 
-**不要在本机跑生产**：本机连不到内网网关；本机只改代码，然后 `./deploy_local.sh aime`。
+**不要在本机跑生产**：本机改代码，然后 `./deploy_local.sh aime` 同步并预检。
 
 ## 1. 开始前
 
 ```bash
 ssh aime_rsi_data
 cd /mnt/aime_eval_ssd/code/2_cluster_algorithm
-source .deploy/env.sh          # 必须；渠道根 / 网关 / PATH / TZ 都在里面
-tmux new -s manual             # 长任务必须进 tmux
-bin/preflight.sh               # 8 项：OK / BLOCKED / FAIL
+source .deploy/env.sh          # 必须：加载 venv / PYTHONPATH / PG / 网关 / TZ
+bin/preflight.sh               # 8 项：0 FAIL 且 0 BLOCKED 才可开跑
+python3 bin/pg_cluster.py status
 ```
 
-- 有 **FAIL**：先修，不许开跑。
-- 只有 **BLOCKED**：环境没问题，在等外部条件（网关 / 数据），也不许开跑。
-- 全 OK：可以开跑。
+与守护进程共享 `runs/.lock` 并发锁；手动做大批次发版或补钻时建议先按 §5 暂停守护。
 
-如果守护进程正在跑一轮，**不要手动再开**：`runs/.lock` 会拦住，或两边互相踩基线。
-要手动，先按 §6 停掉主循环和看门狗。
+## 2. 常用命令
 
-## 2. 跑法
-
-### 2.1 增量（日常，守护进程就是这么跑）
+### 2.1 手动触发一轮增量回填（L3 + L4 → `/clusters/bind`）
 
 ```bash
-bin/run_trees.sh --incremental --no-full-fallback
+python3 bin/pg_cluster.py incremental
+python3 bin/pg_cluster.py incremental --only aime_fast --limit 2000
+python3 bin/pg_cluster.py incremental --dry-run          # 只查 PG + Zstd pread + 分片，不调模型不写库
 ```
 
-- `--no-full-fallback`：没有基线就直接退 3，**绝不悄悄全量**。
-- 无新增时两棵树都写 `noop`，不调模型。
-- 只判新增条目，去重键 `(trace_id, problem_index)`。
+- 无待聚类行（`cluster_code IS NULL = 0`）秒级 `noop`，不探活归类网关。
+- 遇到未登记组件或个别失败分片时：合法行照常回填 PG，坏行保留 `NULL` 并落盘 `logs/unregistered_<model>.json` / `logs/missing_leaf_aime.jsonl`，命令返回 `rc=1` 触发告警。
 
-### 2.2 只跑一棵 / 先看不动
+### 2.2 手动整树发版（`cluster_tree/<model>/v<ver>_<date>/` + `current`）
 
 ```bash
-bin/run_trees.sh --only aime_fast --incremental --no-full-fallback
-bin/run_trees.sh --dry-run          # 只 ingest + chunk，不归类、不写交付
+python3 bin/pg_cluster.py publish                        # 默认 --skip-bind，不重复写 515k 行
+python3 bin/pg_cluster.py publish --only aime_expert --dry-run
+python3 bin/pg_cluster.py publish --rebind-all           # 仅大改分类法/全量重绑时使用
 ```
 
-### 2.3 全量 / 重建
+### 2.3 新增 L4 叶子后补钻历史条目
 
 ```bash
-# 先停：tmux kill-session -t cluster-watch-aime; tmux kill-session -t cluster-incr-aime
-bin/run_trees.sh                    # 两棵树全量；耗时远大于增量，别在高峰期做
+python3 bin/pg_cluster.py backfill-l4 --leaves S9.M5.1,S9.M5.2 --limit 5000
+# 重判已下钻条目加 --force；补钻完执行一次 publish 刷新整树报告
 ```
 
-- 全量会先清 `runs/<树>/run`，成功后用新 `run` 取代旧 `run_merged`；
-  **失败时旧 `run_merged` 仍在**（不会先删），但别把“全量”当常规操作。
-- `--rebuild` 是“全量重新 ingest，但按 `(trace_id, problem_index)` 复用上一版判定”，
-  用于换交付格式/身份口径，避免 20 万条重判漂移；它不是无脑重判。
-- 真要重新调模型判全部条目，才用 `--rebuild` 并接受成本；否则不要动历史判定。
-
-### 2.4 临时降并发
+### 2.4 按节点召回原始样本（直查 PG + O(1) Zstd `pread_json`）
 
 ```bash
-bin/run_trees.sh --incremental --concurrency 2
+python3 bin/pg_cluster.py recall --model aime_fast --node S9.M5.1 --limit 5 --full
 ```
-
-只在 429 持续时用；不要往上调（上限 32，当前 4 是网关限流后的值）。
 
 ## 3. 一轮内部做了什么
 
 ```text
-cases 索引（cases_aime.jsonl）
-  → 扫 0_daily_eval/<model>，软链到 runs/_src/<树>/{daily,lost}/
-  → ingest（归因 + eval_input 按 trace_id join）
-  → make_delta（只取未判条目）
-  → chunk（全量 200/片；增量 60/片；都按环节）
-  → classify（直调网关；非法 path 先重试，再带清单重问一次）
-  → merge（增量并回 run_merged；全量产出 run）
-  → finish（aggregate / verify / report / chart / syndrome / manifest）
-  → 拷 11 个文件到 <AIME_ROOT>/cluster/<树>/
-  → 重建 badcase_aime / goldencase_aime
+增量（每 15 分钟）
+  PG SELECT eval_problems (is_latest AND NOT is_deleted AND cluster_code IS NULL, LIMIT 5000)
+    → 按 (attr_rel, offset, len) 去重做 O(1) Zstd pread 补 definition/reason
+    → 校验组件（未登记隔离至 logs/unregistered_<model>.json）
+    → 分片（60/片）→ classify.py（L3）→ l4_apply.py（命中 12 个 L4 父叶时）
+    → 分批（500/批）POST /api/v1/data-core/clusters/bind（带 tree_id + cluster_version + data_cutoff）
+    → 首次命中休眠叶 或 到达 CST 04:00 窗口 → 自动触发整树发版
+
+整树发版（每日 / 手动 / 新叶触发）
+  PG 服务端游标流式聚合全量最新有效 eval_problems
+    → 仅对各叶抽样（~1,000 条）做 Zstd pread 补 definition
+    → 产出 10 件交付物并严格自检（verify.json: errors=0, locator_mismatch=0）
+    → python3 -m pg_data_core.writers publish-cluster --skip-bind
+       （写入 cluster_tree/<model>/v<ver>_<YYYYMMDD>/、原子切换 current 软链、更新 cluster_trees/cluster_nodes）
 ```
 
-当前实测：`aime_fast` 增量 4,748 条约 5–6 分钟；`aime_expert` 189 条约 1 分钟。
-耗时主要看新增条目数和网关状态，不看总条目数。
-
-## 4. 监控
+## 4. 监控与验收口径
 
 ```bash
 tmux ls
-tmux attach -t cluster-incr-aime          # Ctrl-b d 退出，不要 Ctrl-c
 tail -f logs/incremental-aime.log
-tail -n 5 runs/_runs.jsonl
 cat logs/incr_status_aime.json
+tail -n 6 runs/_runs.jsonl
+python3 bin/pg_cluster.py status
 ```
 
-正常的一轮在日志里长这样：
+满足以下四条即正常：
+1. `tmux ls` 同时存在 `cluster-incr-aime` 与 `cluster-watch-aime`；
+2. `logs/incr_status_aime.json` 中 `rc=0`；
+3. `pg_cluster.py status` 显示 `5003 health: ok=True`，两模型 `unclustered` 维持低位或归零，`current` 指向最新日快照；
+4. `/mnt/aime_eval_ssd/1_aime/cluster_tree/<model>/current/verify.json` 满足 `errors=0`、`locator_mismatch=0`。
 
-```text
-chunks=83/83 items=4748 calls=83 failed=0 elapsed=196s rate=1455 items/min
-items=423524 sessions=69153 L1=12 L3=174 L4=42 edge=10523
-leaves=204 total=423524 locator_mismatch=0 errors=0
-  交付：.../cluster/aime_fast（11 个文件）
-全部完成。
-```
-
-## 5. 什么算成功
-
-同时满足四条：
-
-1. `runs/_runs.jsonl` 最后两行分别是 expert / fast，`verify` 为 `err=0,mismatch=0` 或 `noop`；
-2. `runs/<树>/out/verify.json` 里 `errors=0`、`locator_mismatch=0`；
-3. `<AIME_ROOT>/cluster/<树>/` 有 11 个文件，`MANIFEST.json` 的 mtime 是刚才；
-4. `logs/incr_status_aime.json` 的 `rc=0`。
-
-任何一条不满足，都不要对外说“跑完了”；按 [troubleshooting.md](troubleshooting.md) 查。
-
-## 6. 停 / 起守护
+## 5. 停 / 起守护
 
 ```bash
 # 停（先看门狗，后主循环）
 tmux kill-session -t cluster-watch-aime
 tmux kill-session -t cluster-incr-aime
 
-# 起（先主循环，后看门狗）
-tmux new -d -s cluster-incr-aime  "cd $PWD && CLUSTER_INTERVAL=7200 bin/channel_daemon.sh aime 7200 >> logs/incremental-aime.log 2>&1"
-tmux new -d -s cluster-watch-aime "cd $PWD && CLUSTER_INTERVAL=7200 bin/watch_daemon.sh aime >> logs/watchdog-aime.log 2>&1"
+# 起（先主循环，后看门狗；间隔自动读 .deploy/env.sh 的 CLUSTER_INTERVAL=900）
+cd /mnt/aime_eval_ssd/code/2_cluster_algorithm && source .deploy/env.sh
+tmux new -d -s cluster-incr-aime  "cd $PWD && bin/channel_daemon.sh aime >> logs/incremental-aime.log 2>&1"
+tmux new -d -s cluster-watch-aime "cd $PWD && bin/watch_daemon.sh aime >> logs/watchdog-aime.log 2>&1"
 ```
 
-看门狗每 300 秒检查主循环，被 OOM 杀掉会拉起；**只判断进程在不在，不判断任务成没成功**。
-所以主循环“在跑但一直失败”时，看门狗不会救，要看 `failures_aime.log`。
+## 6. 变更与回滚
 
-## 7. 交付与话术
-
-每棵树 11 个文件（见 [handoff.md](handoff.md) §6）。对外只说三个数，不要只丢文件：
-
-1. **最大单点**：会话数最高的 1–3 个叶子（读 `cluster_brief.md`）；
-2. **最普遍的机制**：机制排名，以及它和环节的交叉；
-3. **诚实刻度**：`edge` 比例、`verify` 结果、用的是快速还是质量模式。
-
-当前口径：排序按**会话数**，不按条目数；`low_sample` 不参与排名；`edge` 先复核。
-
-## 8. 什么时候停手
-
-- 预检 `BLOCKED`：等外部条件，不开跑。
-- 连续 429：按并发 2 补跑一次；还失败就等网关高峰过去，**不要加并发**。
-- 同一棵树连续 ENOMEM：4.4.9 已自动重试一次；仍失败说明这一轮太大，等下一轮或先清页缓存。
-- 缺叶 / 非法 path：该片不交付、整批 `rc=1`，看 `unresolved_*.json` 的 `model_path` 补叶，
-  **不要加兜底**，也不要手工改 `items.jsonl`。
-- 磁盘告警：先清 `.archive` / `stress-*`，不要删 `cluster/`、`runs/*/run_merged` / `run`。
-
-## 9. 变更后
-
-- 代码改了：本机 `./deploy_local.sh aime`，看远端预检；再用 §2.1 跑一轮验证。
-- 分类法改了：先 `python3 bin/taxonomy_lint.py` 到 `errors=0`，再部署。
-- 口径 / 版本变了：更新 `VERSION.json`，在 [changelog.md](changelog.md) 记一行，
-  并刷新 [handoff.md](handoff.md) 的快照日期。
+- 代码或分类法变更：本地 `python3 bin/taxonomy_lint.py` + `python3 bin/pack_cluster_pkg.py --sync` + `python3 -m unittest discover -s tests -p "test_*.py"` 通过后，执行 `./deploy_local.sh aime`。
+- 切换分类法或大版本发版：跑一次 `python3 bin/pg_cluster.py publish --reason "release-<ver>"` 即可生成新快照并切换 `current`。

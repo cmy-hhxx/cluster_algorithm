@@ -16,7 +16,7 @@ from .llm_client import ResponsesClient
 from .reporter import aggregate_and_deliver
 from .tax_store import TaxonomyStore
 
-__version__ = "4.6.0"
+__version__ = "4.7.0"
 
 
 def _atomic_publish_staging(staging_dir: str, stage_tax_dir: str, out_dir: str):

@@ -14,13 +14,15 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 CH=${1:?用法: bin/channel_daemon.sh <wencai|aime> [间隔秒]}
+# 先加载 .deploy/env.sh，保证 CLUSTER_INTERVAL / CLUSTER_CONCURRENCY / CLUSTER_BACKEND 生效
+if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 INTERVAL=${2:-${CLUSTER_INTERVAL:-1800}}
 CONC=${CLUSTER_CONCURRENCY:-12}
+BACKEND=${CLUSTER_BACKEND:-files}
+DAILY_HOUR=${CLUSTER_DAILY_PUBLISH_HOUR:-4}
 mkdir -p logs
 STATUS="logs/incr_status_${CH}.json"
 FAILS="logs/failures_${CH}.log"
-# 和 run_trees.sh 一样先从 .deploy/env.sh 拿渠道根与网关
-if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 
 status() {  # $1=rc $2=note
   python3 - "$STATUS" "$1" "$2" "$CH" "$INTERVAL" <<'PY'
@@ -32,7 +34,7 @@ json.dump({"at": datetime.datetime.now().astimezone().isoformat(timespec="second
 PY
 }
 
-echo "[$(date '+%F %T')] 常驻增量启动：渠道 ${CH}，每 ${INTERVAL}s 一轮，并发 ${CONC}"
+echo "[$(date '+%F %T')] 常驻增量启动：渠道 ${CH}（后端 ${BACKEND}），每 ${INTERVAL}s 一轮，并发 ${CONC}"
 while true; do
   sleep "$INTERVAL"
   # 网关还没开通的机器就安静等待，不往失败日志里刷垃圾
@@ -41,10 +43,19 @@ while true; do
     status 0 "blocked-no-gateway"
     continue
   fi
-  echo "[$(date '+%F %T')] 增量触发（渠道 ${CH}）"
+  echo "[$(date '+%F %T')] 增量触发（渠道 ${CH}，后端 ${BACKEND}）"
   rc=0
-  bin/run_trees.sh --channel "$CH" --incremental --no-full-fallback --concurrency "$CONC" || rc=$?
-  if (( rc != 0 )); then
+  if [[ "$CH" == "aime" && "$BACKEND" == "pg" ]]; then
+    python3 bin/pg_cluster.py incremental \
+      --concurrency "$CONC" \
+      --daily-publish-hour "$DAILY_HOUR" || rc=$?
+  else
+    bin/run_trees.sh --channel "$CH" --incremental --no-full-fallback --concurrency "$CONC" || rc=$?
+  fi
+  if (( rc == 3 )); then
+    echo "[$(date '+%F %T')] 本次增量阻塞（rc=3，网关暂不可达），等下一轮" | tee -a "$FAILS"
+    status "$rc" "blocked"
+  elif (( rc != 0 )); then
     echo "[$(date '+%F %T')] 本次增量失败（退出码 ${rc}），等下一轮" | tee -a "$FAILS"
     status "$rc" "failed"
   else

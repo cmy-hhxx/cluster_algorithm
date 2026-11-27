@@ -1168,5 +1168,11 @@
   "label": "事件日历技能",
   "role": "skill",
   "stage": "S10"
+ },
+ "render_kline_forecast": {
+  "tool": "render_kline_forecast",
+  "label": "行情图渲染服务",
+  "role": "tool",
+  "stage": "S11"
  }
 }

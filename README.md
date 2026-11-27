@@ -7,24 +7,24 @@
 - **独立可移植模块**：[`cluster_pkg/`](cluster_pkg/README.md) 零第三方强依赖，外部项目只需配置 OpenAI 协议端点（兼容 Responses / Chat Completions）与既有聚类树目录，一条命令 `python cluster_pkg/run_cluster.py -c config.yaml`（或直接 `import cluster_pkg`）即可运行全量/增量聚类与 `--prune` 脏数据清理，并支持未知组件与新叶自适应创建；运行 `python3 bin/pack_cluster_pkg.py` 一键生成可分发的 `.whl` 与 `.tar.gz`。
 - **双机生产渠道**：AIME 在**弗吉尼亚**（`aime_rsi_data`，`aime_fast` / `aime_expert`），问财在**乌兰察布**（`eval_data`，4 + 6 棵树）；两个渠道不交叉、不合并。
 
-## 当前状态（2026-11-26 CST）
+## 当前状态（2026-11-27 CST）
 
-| 树 | 条目 | 会话 | 叶子 | L4 | 最近一轮 | 校验 |
-|---|---:|---:|---:|---:|---|---|
-| `aime_fast` | 423,524 | 69,153 | 174 | 42 | 22:52 | `err=0 / mismatch=0` |
-| `aime_expert` | 147,314 | 22,358 | 176 | 42 | 22:52 | `err=0 / mismatch=0` |
+| 树 | 条目（PG 最新有效） | 叶子 | L4 | 后端 | 校验 |
+|---|---:|---:|---:|---|---|
+| `aime_fast` | 515,799 | 177 | 42 | PG 16 + Zstd | `err=0 / mismatch=0` |
+| `aime_expert` | 173,319 | 178 | 42 | PG 16 + Zstd | `err=0 / mismatch=0` |
 
-- 版本 **4.6.0**；基础分类法 **181 叶**（生产树用到 174 / 176），**12 个高影响叶子已下钻到 L4（42 个子类）**。
-- L4 覆盖：fast 39.1% 条目 / **66.7%** 的 P0/P1；expert 33.5% / **58.1%**。
-- 守护进程每 **2 小时**一轮增量；接手生产先看 **[docs/handoff.md](docs/handoff.md)**。
+- 版本 **4.7.0**；基础分类法 **181 叶**，**12 个高影响叶子已下钻到 L4（42 个子类）**。
+- **AIME 弗吉尼亚已切至 PG-Native**：以 PostgreSQL 16 `public.eval_problems` 为唯一状态真源，不再扫旧 `.jsonl` 与维护本地 `run_merged` 基线；守护进程每 **15 分钟**增量回填（`POST /api/v1/data-core/clusters/bind`），每日 CST 04:00 窗口（及新命中休眠叶时）自动发布整树快照到 `/mnt/aime_eval_ssd/1_aime/cluster_tree/<model>/v<ver>_<date>/`（维护 `current` 软链）；接手生产先看 **[docs/handoff.md](docs/handoff.md)**。
 
 ## 文档
 
 | 文档 | 什么时候看 |
 |---|---|
 | [cluster_pkg/README.md](cluster_pkg/README.md) | **外部业务接入 / 独立模块**：`config.yaml`、CLI 与 Python 调用、自适应建叶 |
-| [docs/handoff.md](docs/handoff.md) | **生产交接第一份**：两棵树现状、SSH、文件/代码位置、三分钟自检 |
-| [docs/runbook.md](docs/runbook.md) | 日常运维：跑一轮、监控、交付检查、停/起守护 |
+| [docs/handoff.md](docs/handoff.md) | **生产交接第一份**：两棵树现状、SSH、PG 布局、三分钟自检 |
+| [docs/runbook.md](docs/runbook.md) | 日常运维：增量回填、整树发版、L4 补钻、召回、停/起守护 |
+| [docs/pg_data_core_changes.md](docs/pg_data_core_changes.md) | `pg_data_core` 配合聚类 PG-Native 化的接口与发版契约 |
 | [docs/deploy.md](docs/deploy.md) | 从零部署、换容器、环境初始化、代码怎么上去 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 出问题：网关 401/429、ENOMEM、缺叶、SSH、verify |
 | [docs/methodology.md](docs/methodology.md) | 分类法：12 环节、7 机制、计数口径、质量协议、自适应演进 |
@@ -40,14 +40,16 @@
 python3 cluster_pkg/run_cluster.py -c cluster_pkg/config.example.yaml
 ```
 
-**生产服务器查看与跑批：**
+**生产服务器查看与跑批（AIME / PG-Native）：**
 
 ```bash
 ssh aime_rsi_data
 cd /mnt/aime_eval_ssd/code/2_cluster_algorithm
 source .deploy/env.sh
 bin/preflight.sh
-bin/run_trees.sh --incremental --no-full-fallback
+python3 bin/pg_cluster.py status
+python3 bin/pg_cluster.py incremental
+python3 bin/pg_cluster.py publish
 ```
 
 **本机同步代码到服务器：**

@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "cluster-pkg"
-version = "4.6.0"
+version = "4.7.0"
 description = "Zero-dependency portable attribution clustering service (OpenAI Responses/Chat API + adaptive taxonomy)"
 readme = "README.md"
 requires-python = ">=3.9"

@@ -54,6 +54,47 @@ else
 fi
 
 echo "[4/8] 渠道与数据根"
+BACKEND=${CLUSTER_BACKEND:-files}
+if [[ "$CH" == "aime" && "$BACKEND" == "pg" ]]; then
+  PG_ROOT=${AIME_DATA_ROOT:-/mnt/aime_eval_ssd/1_aime}
+  PG_CORE=${PG_DATA_CORE_PATH:-/opt/pg_data_core}
+  HEALTH_URL=${DATA_CORE_HEALTH_URL:-http://127.0.0.1:5003/api/v1/data-core/health}
+  [[ -d "$PG_ROOT/cluster_tree" ]] && ok "AIME 数据根 ${PG_ROOT}（cluster_tree 就绪）" \
+    || bad "缺少目录：${PG_ROOT}/cluster_tree"
+  PG_OUT=$(PYTHONPATH="${PG_CORE}:${PYTHONPATH:-}" python3 - "$PG_ROOT" <<'PYPG' 2>&1
+import sys
+try:
+    import psycopg, zstandard  # noqa: F401
+    from pg_data_core.config import load_config
+    from pg_data_core.db import connect_direct
+except Exception as e:
+    print(f"IMPORT_FAIL: {e}")
+    sys.exit(2)
+try:
+    cfg = load_config(role="ro", data_root=sys.argv[1])
+    with connect_direct(cfg, app_name="cluster_preflight") as conn:
+        rows = conn.execute("""
+            SELECT p.model, COUNT(*) AS tot, COUNT(*) FILTER (WHERE p.cluster_code IS NULL) AS nulls
+            FROM public.eval_problems p
+            JOIN public.eval_outputs o ON o.output_id = p.output_id AND o.is_latest = TRUE
+            JOIN public.eval_inputs i ON i.input_id = p.input_id AND NOT i.is_deleted
+            GROUP BY p.model ORDER BY p.model
+        """).fetchall()
+    parts = [f"{r['model']}:{r['tot']}(待聚 {r['nulls']})" for r in rows]
+    print("PG_OK: " + (", ".join(parts) if parts else "empty"))
+except Exception as e:
+    print(f"PG_FAIL: {e}")
+    sys.exit(1)
+PYPG
+  )
+  pg_rc=$?
+  if (( pg_rc == 0 )); then ok "$PG_OUT"
+  elif (( pg_rc == 2 )); then bad "${PG_OUT}（检查 /opt/cluster-venv/pyvenv.cfg 的 include-system-site-packages=true）"
+  else bad "$PG_OUT"; fi
+  H_CODE=$(curl -s -m 4 --noproxy '*' -o /dev/null -w '%{http_code}' "$HEALTH_URL" 2>/dev/null || echo 000)
+  if [[ "$H_CODE" == "200" ]]; then ok "5003 data-core health -> 200（${HEALTH_URL}）"
+  else blk "5003 data-core health 不可达（HTTP ${H_CODE}：${HEALTH_URL}）"; fi
+else
 HR=0
 if [[ "$CH" == "wencai" || "$CH" == "auto" ]] && [[ -n "${WENCAI_ROOT:-}" ]]; then
   # 只数真正会被扫描到的目录：.delivery/.runs 这类状态目录在 ceph 上可能有几十万个小文件，
@@ -75,16 +116,17 @@ fi
 # 规整后的输入根（eval_input，trace 粒度）：只提供 question/session_id，缺了不阻塞，只降级
 if [[ ( "$CH" == "wencai" || "$CH" == "auto" ) && -n "${WENCAI_CASES_ROOT:-}" ]]; then
   [[ -d "$WENCAI_CASES_ROOT" ]] && ok "问财输入根 ${WENCAI_CASES_ROOT}" \
-    || warn "问财输入根不存在：$WENCAI_CASES_ROOT（ingest 退回归因自带 question）"
+    || warn "问财输入根不存在：${WENCAI_CASES_ROOT}（ingest 退回归因自带 question）"
 fi
 if [[ ( "$CH" == "aime" || "$CH" == "auto" ) && -n "${AIME_CASES_ROOT:-}" ]]; then
   [[ -d "$AIME_CASES_ROOT" ]] && ok "AIME 输入根 ${AIME_CASES_ROOT}" \
-    || warn "AIME 输入根不存在：$AIME_CASES_ROOT（ingest 退回归因自带 question）"
+    || warn "AIME 输入根不存在：${AIME_CASES_ROOT}（ingest 退回归因自带 question）"
 fi
 if [[ -n "${CASE_INDEX_ROOT:-}" ]]; then
   [[ -d "$CASE_INDEX_ROOT" ]] && ok "索引目录 ${CASE_INDEX_ROOT}" || warn "索引目录不存在，会新建：$CASE_INDEX_ROOT"
 else
   warn "没设 CASE_INDEX_ROOT：跑完后不会重建 badcase/goldencase 清单"
+fi
 fi
 
 echo "[5/8] 归类网关"
@@ -183,6 +225,10 @@ elif (( ${#BLOCKED[@]} )); then
   echo "环境就绪，但还不许开跑，等待外部条件："
   for b in "${BLOCKED[@]}"; do echo "  - $b"; done
 else
-  echo "预检通过，可以开跑：bin/run_trees.sh"
+  if [[ "$CH" == "aime" && "${CLUSTER_BACKEND:-files}" == "pg" ]]; then
+    echo "预检通过，可以开跑：python3 bin/pg_cluster.py incremental"
+  else
+    echo "预检通过，可以开跑：bin/run_trees.sh"
+  fi
 fi
 exit $FAIL

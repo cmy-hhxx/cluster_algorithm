@@ -33,6 +33,7 @@ done
 
 case "$CH" in
   wencai)
+    BACKEND=files
     HOST=${WL_HOST:-eval_data}
     REPO=${WL_REPO:-/mnt/fin_bench/code_and_clean_data/code/2_cluster_algorithm}
     VENV=${WL_VENV:-$REPO/.venv}
@@ -42,22 +43,31 @@ case "$CH" in
     GW=${WL_GATEWAYS:-http://interactive-djahh4fczrhq:5001/v1,http://interactive-s4lvy0mmvu32:5001/v1}
     GWKEY=${WL_GATEWAY_KEY:-dummy}
     CONC=${WL_CONC:-12}
+    INTERVAL=${WL_INTERVAL:-1800}
     ;;
   aime)
+    BACKEND=${VA_BACKEND:-pg}
     HOST=${VA_HOST:-aime_rsi_data}
     REPO=${VA_REPO:-/mnt/aime_eval_ssd/code/2_cluster_algorithm}
     VENV=${VA_VENV:-/opt/cluster-venv}
-    # 2026-11-09 起 AIME 的数据和代码都在 SSD 布局 /mnt/aime_eval_ssd（相对结构不变：code/、1_aime/eval_output）
-    ROOT=${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}
-    # 2026-11-11 起规整后的输入在 <渠道>/eval_input（trace 粒度，提供 question/session_id）
-    CASES=${VA_CASES:-$(dirname "${VA_ROOT:-/mnt/aime_eval_ssd/1_aime/eval_output}")/eval_input}
-    INDEX=${VA_INDEX:-/mnt/aime_eval_ssd}
+    # 2026-11-27 起 AIME 切至 PG 16 + 多帧 Zstd（/mnt/aime_eval_ssd/1_aime），不再扫旧 .jsonl
+    DATA_ROOT=${VA_DATA_ROOT:-/mnt/aime_eval_ssd/1_aime}
+    PG_CORE=${VA_PG_CORE:-/opt/pg_data_core}
+    BIND_URL=${VA_BIND_URL:-http://127.0.0.1:5003/api/v1/data-core/clusters/bind}
+    HEALTH_URL=${VA_HEALTH_URL:-http://127.0.0.1:5003/api/v1/data-core/health}
+    ROOT="$DATA_ROOT"
+    CASES=""
+    INDEX=""
     # 2026-11-17 起 AIME 网关走统一网关 http://10.217.220.51/ai-gateway/v1（需要 API key）
     # API key 不入库：写在 .deploy/local.conf 的 VA_GATEWAY_KEY（.deploy/ 已 gitignore）
     GW=${VA_GATEWAYS:-http://10.217.220.51/ai-gateway/v1}
     GWKEY=${VA_GATEWAY_KEY:-dummy}
     # 2026-11-17 起网关是 LiteLLM 托管网关（按 key 限流）：并发降下来，靠 429 退避兜底
     CONC=${VA_CONC:-4}
+    INTERVAL=${VA_INTERVAL:-900}
+    DAILY_PUBLISH_HOUR=${VA_DAILY_PUBLISH_HOUR:-4}
+    BATCH_LIMIT=${VA_BATCH_LIMIT:-5000}
+    MODELS=${VA_MODELS:-aime_fast,aime_expert}
     ;;
   *) echo "渠道只能是 wencai 或 aime：$CH" >&2; exit 2 ;;
 esac
@@ -69,12 +79,17 @@ CODE_SHA=$(find bin taxonomy prompts -type f \( -name '*.py' -o -name '*.sh' -o 
 NOW=$(date '+%Y-%m-%dT%H:%M:%S%z')
 SRC_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
-echo "渠道：$CH -> $HOST:$REPO"
-echo "版本：$VER  代码指纹：${CODE_SHA:0:16}  并发：$CONC"
+echo "渠道：${CH}（后端：${BACKEND}） -> ${HOST}:${REPO}"
+echo "版本：$VER  代码指纹：${CODE_SHA:0:16}  并发：$CONC  周期：${INTERVAL}s"
 [[ -n "$GW" ]] && echo "网关：$GW" || echo "网关：（留空，等开通）"
 echo "数据根：$ROOT"
-echo "输入根：$CASES"
-echo "索引目录：$INDEX"
+if [[ "$BACKEND" == "pg" ]]; then
+  echo "PG 内核：${PG_CORE}  写入接口：${BIND_URL}"
+  echo "模型列表：${MODELS}  日发版窗口：CST ${DAILY_PUBLISH_HOUR}:00  单轮上限：${BATCH_LIMIT}"
+else
+  echo "输入根：$CASES"
+  echo "索引目录：$INDEX"
+fi
 if (( DRY )); then echo; echo "[dry-run] 只打印，不做任何传输"; exit 0; fi
 
 ssh "$HOST" "mkdir -p '$REPO/.deploy/fonts' '$REPO/logs' '$REPO/runs'"
@@ -102,6 +117,33 @@ echo "== 渲染 .deploy/env.sh =="
 put() { ssh "$HOST" "cat > '$1'" < "$2"; }
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
+if [[ "$BACKEND" == "pg" ]]; then
+cat > "$TMP" <<EOF
+# 服务器运行环境（不入库；由本机 deploy_local.sh 渲染）。手动跑命令前：source .deploy/env.sh
+D=$REPO
+export PATH="$VENV/bin:\$PATH"
+export PYTHONPATH="${PG_CORE}:\${PYTHONPATH:-}"
+export CLUSTER_CHART_FONT="\$D/.deploy/fonts/wqy-zenhei.ttc"
+export TZ=Asia/Shanghai
+# 这台机器只跑这个渠道（PG 16 + 多帧 Zstd 原生模式）
+export CLUSTER_CHANNEL=$CH
+export CLUSTER_BACKEND=pg
+export PG_DATA_CORE_PATH="$PG_CORE"
+export AIME_DATA_ROOT="$DATA_ROOT"
+export DATA_CORE_BIND_URL="$BIND_URL"
+export DATA_CORE_HEALTH_URL="$HEALTH_URL"
+export CLUSTER_MODELS="$MODELS"
+export CLUSTER_CONCURRENCY=$CONC
+export CLUSTER_INTERVAL=$INTERVAL
+export CLUSTER_DAILY_PUBLISH_HOUR=$DAILY_PUBLISH_HOUR
+export CLUSTER_PG_BATCH_LIMIT=$BATCH_LIMIT
+export CLUSTER_GATEWAYS="$GW"
+export EVAL_GATEWAY_API_KEY=$GWKEY
+# 网关/内网不走公司 squid（docs/troubleshooting.md §3）
+export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.244.192.108,10.217.220.51,localhost,127.0.0.1"
+export no_proxy="\$NO_PROXY"
+EOF
+else
 cat > "$TMP" <<EOF
 # 服务器运行环境（不入库；由本机 deploy_local.sh 渲染）。手动跑命令前：source .deploy/env.sh
 D=$REPO
@@ -110,24 +152,28 @@ export CLUSTER_CHART_FONT="\$D/.deploy/fonts/wqy-zenhei.ttc"
 export TZ=Asia/Shanghai
 # 这台机器只跑这个渠道
 export CLUSTER_CHANNEL=$CH
+export CLUSTER_BACKEND=files
 export WENCAI_ROOT="$([[ "$CH" == wencai ]] && echo "$ROOT")"
 export AIME_ROOT="$([[ "$CH" == aime ]] && echo "$ROOT")"
 export WENCAI_CASES_ROOT="$([[ "$CH" == wencai ]] && echo "$CASES")"
 export AIME_CASES_ROOT="$([[ "$CH" == aime ]] && echo "$CASES")"
 export CASE_INDEX_ROOT="$INDEX"
 export CLUSTER_CONCURRENCY=$CONC
+export CLUSTER_INTERVAL=$INTERVAL
 export CLUSTER_GATEWAYS="$GW"
 export EVAL_GATEWAY_API_KEY=$GWKEY
 # 网关/内网不走公司 squid（docs/troubleshooting.md §3）
 export NO_PROXY="interactive-s4lvy0mmvu32,interactive-djahh4fczrhq,interactive-n01laf763gwn,10.99.116.223,10.244.192.108,10.217.220.51,localhost,127.0.0.1"
 export no_proxy="\$NO_PROXY"
 EOF
+fi
 put "$REPO/.deploy/env.sh" "$TMP"
 
 echo "== 写部署指纹 =="
 cat > "$TMP" <<EOF
 {
  "channel": "$CH",
+ "backend": "$BACKEND",
  "host": "$HOST",
  "repo": "$REPO",
  "version": "$VER",

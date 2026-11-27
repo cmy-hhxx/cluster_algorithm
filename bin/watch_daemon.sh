@@ -13,8 +13,9 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 CH=${1:?用法: bin/watch_daemon.sh <wencai|aime> [检查间隔秒]}
+if [[ -f "$ROOT/.deploy/env.sh" ]]; then source "$ROOT/.deploy/env.sh"; fi
 SLEEP=${2:-300}
-INTERVAL=${CLUSTER_INTERVAL:-1800}   # 被拉起的增量循环保持同一节奏（弗吉尼亚现为 7200s）
+INTERVAL=${CLUSTER_INTERVAL:-1800}   # 被拉起的增量循环保持同一节奏（AIME PG 默认 900s）
 SESSION="cluster-incr-${CH}"
 mkdir -p logs
 echo "[$(date '+%F %T')] 看门狗启动：每 ${SLEEP}s 检查 ${SESSION}"
